@@ -61,8 +61,12 @@ readonly CARD_MATCH="GAOKUN3"
 readonly PA_VOLUME_LIMIT=17
 # 内核同时把数字音量限到 81（−3.00 dB）。
 readonly DIGITAL_VOLUME_LIMIT=81
+# 基线镜像里 X13s profile 写入的功放增益（−3.00 dB），--revert 时用它还原。
+readonly PA_VOLUME_BASELINE=12
 # 本项目 profile 在 conf.d 中的链接目标。
 readonly CONF_LINK_TARGET="../../Qualcomm/sc8280xp/HUAWEI-GK-W7X.conf"
+# 等待功放增益生效的最长秒数（UCM 的 BootSequence 在设备被打开时才执行，时机不确定）。
+readonly VERIFY_TIMEOUT=12
 
 ACTION="apply"
 ENABLE_SOFTCLIP=0
@@ -176,6 +180,41 @@ restart_audio_stack() {
 	as_desktop_user "${d}" systemctl --user try-restart pipewire.service pipewire-pulse.service \
 		>/dev/null 2>&1 || true
 	sleep 2
+}
+
+# 把两个功放增益立刻写成指定值。之所以要"立刻写"，是因为 UCM 的 BootSequence
+# 只在设备被打开（由 PipeWire/WirePlumber 触发）时执行一次，时机并不可靠：
+# 实测音效卡在空闲时会掉电复位，复位后控件回到驱动默认值 0，而 BootSequence 不会重跑。
+# 直接写 + alsactl store 是可靠路径；UCM profile 则是声明式的长期修复，两者目标一致。
+set_pa_volume() {
+	local card="$1" value="$2" name
+	for name in 'SpkrLeft PA Volume' 'SpkrRight PA Volume'; do
+		if ! ctl_exists "${card}" "${name}"; then
+			log_warn "控件 ${name} 不存在，跳过。"
+			continue
+		fi
+		run amixer -c "${card}" cset name="${name}" "${value}" >/dev/null
+	done
+}
+
+# 把当前混音器状态存到 /var/lib/alsa/asound.state，由开机时的 alsa-restore.service 恢复。
+persist_mixer_state() {
+	if ! have_cmd alsactl; then
+		log_warn "系统无 alsactl；混音器状态不会跨重启保持，UCM profile 仍是生效路径。"
+		return 0
+	fi
+	run alsactl store >/dev/null 2>&1 || log_warn "alsactl store 失败（混音器状态未持久化）。"
+}
+
+# 等待两个功放增益达到期望值；返回 0 表示已达到。
+wait_pa_volume() {
+	local card="$1" want="$2" i val
+	for ((i = 0; i < VERIFY_TIMEOUT; i++)); do
+		val="$(ctl_value "${card}" 'SpkrLeft PA Volume')"
+		[ "${val}" = "${want}" ] && return 0
+		sleep 1
+	done
+	return 1
 }
 
 # ===========================================================================
@@ -320,12 +359,15 @@ do_verify() {
 		if [ "${val}" = "${PA_VOLUME_LIMIT}" ]; then
 			result_row "${c}" PASS "${val}（内核限幅上限）"
 		else
-			result_row "${c}" FAIL "值 ${val:-？}，期望 ${PA_VOLUME_LIMIT}"
+			result_row "${c}" WARN "值 ${val:-？}，期望 ${PA_VOLUME_LIMIT}"
 			ok=0
 		fi
 	done
 	if [ "${ok}" -eq 0 ]; then
-		log_warn "增益尚未生效：UCM 的 BootSequence 在设备被打开时执行。请播放一段音频后重新执行 --diagnose。"
+		log_warn "功放增益未达到期望值。可能原因：音效卡空闲掉电复位后把控件恢复成驱动默认值，"
+		log_warn "而 UCM 的 BootSequence 只在设备被打开时执行一次、不会重跑。"
+		log_info "直接写法：amixer -c ${card} cset name='SpkrLeft PA Volume' ${PA_VOLUME_LIMIT}"
+		log_info "或执行：  sudo $0 --apply   （本脚本会在安装后立即写一次并 alsactl store）"
 	fi
 	return 0
 }
@@ -361,6 +403,16 @@ do_apply() {
 	run ln -sfn "${CONF_LINK_TARGET}" "${confd}/${longname}.conf"
 	log_ok "已挂载分发链接：${confd}/${longname}.conf → ${CONF_LINK_TARGET}"
 
+	# 顺序很重要：UCM 的 BootSequence 在音频栈重启后约 1–2 秒才被真正执行，
+	# 会覆盖此前写入的值。因此必须"先重启、等它跑完、再写最终值"。
+	log_step "重启音频栈并等待 UCM 序列执行完毕"
+	restart_audio_stack
+	sleep 3
+
+	log_step "写入功放增益并持久化"
+	set_pa_volume "${card}" "${PA_VOLUME_LIMIT}"
+	persist_mixer_state
+
 	if [ "${ENABLE_SOFTCLIP}" -eq 1 ]; then
 		log_step "启用 WSA macro 软限幅（实验性，运行期生效）"
 		local c
@@ -376,6 +428,9 @@ do_apply() {
 	fi
 
 	restart_audio_stack
+	sleep 3
+	set_pa_volume "${card}" "${PA_VOLUME_LIMIT}"
+	persist_mixer_state
 	do_verify
 	result_summary
 }
@@ -410,7 +465,14 @@ do_revert() {
 		log_ok "已还原备份 ${confd}/${longname}.conf"
 	fi
 
+	log_step "重启音频栈并等待 UCM 序列执行完毕"
 	restart_audio_stack
+	sleep 3
+
+	log_step "把功放增益还原为基线值并持久化"
+	set_pa_volume "$(card_number)" "${PA_VOLUME_BASELINE}"
+	persist_mixer_state
+
 	log_info "profile 已回退到基线镜像的 DMI 分发器（HUAWEI → LENOVO-X13s.conf，PA Volume 12 = -3.00 dB）。"
 }
 
