@@ -1,0 +1,57 @@
+From b57392e9a65ee3d7ec1bf1a01c62ffb02bbd894c Mon Sep 17 00:00:00 2001
+From: aoripus <1737562@qq.com>
+Date: Sat, 12 Sep 2026 23:26:29 +0800
+Subject: [PATCH] arm64: dts: qcom: sc8280xp-huawei-gaokun3: select SPI mode
+ for the touchscreen
+
+The Himax HX83121A touch controller on this machine is a cascade IC whose host
+interface is selected at runtime by TLMM gpio174: driving it low makes the IC
+report raw touch data over SPI, driving it high makes it expose its I2C-HID
+interfaces instead.
+
+The boot firmware leaves this pin high, so with the current device tree the IC
+stays in I2C-HID mode. The SPI driver still binds and can talk to the IC - the
+chip ID is detected and the touch firmware reload is reported - but the IC
+never sends touch data and never asserts its level-low interrupt. The
+touchscreen is then completely dead, with the interrupt firing only once per
+firmware reload.
+
+Describe gpio174 as a low output in the touchscreen's default pin state so it
+is already in the SPI configuration before the driver resets the IC and the
+firmware is reloaded. The pin only has to be correct before the reload; the IC
+latches the mode at that point.
+
+Signed-off-by: aoripus <1737562@qq.com>
+---
+ .../boot/dts/qcom/sc8280xp-huawei-gaokun3.dts     | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts b/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts
+index 94e7eeb..bafd88b 100644
+--- a/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts
++++ b/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts
+@@ -1671,6 +1671,21 @@
+ 			drive-strength = <2>;
+ 			bias-disable;
+ 		};
++
++		/*
++		 * Host-interface select for the Himax HX83121A cascade IC.
++		 * The boot firmware happens to leave this pin high, which puts the IC
++		 * into I2C-HID mode; the IC then accepts SPI register access but never
++		 * reports touch data over SPI and never asserts its interrupt.
++		 * The pin has to be low before the touch firmware reloads.
++		 */
++		mode-n-pins {
++			pins = "gpio174";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++			output-low;
++		};
+ 	};
+ 
+ 	uart2_default: uart2-default-state {
+-- 
+2.55.0.windows.4
+
