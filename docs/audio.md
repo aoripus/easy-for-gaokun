@@ -568,7 +568,7 @@ Recently, use the X13s' profile. \
 
 | 动作 | 内容 | 依据 | 状态 |
 |---|---|---|---|
-| **A1** | 把 `SpkrLeft/Right PA Volume` 由 UCM 默认的 `12`（−3.00 dB）提到内核上限 **`17`（0.00 dB）**，净收益 **+3.00 dB** | 内核 TLV 曲线 + `Limits: Playback 0 - 17` + alsa-lib 直读 dB | **已实施**（当前 `values=17`，项目脚本 `scripts/30-audio.sh --apply`） |
+| **A1** | 把 `SpkrLeft/Right PA Volume` 由 UCM 默认的 `12`（−3.00 dB）提到内核上限 **`17`（0.00 dB）**，净收益 **+3.00 dB** | 内核 TLV 曲线 + `Limits: Playback 0 - 17` + alsa-lib 直读 dB | **已实施**：`scripts/30-audio.sh --apply` 安装 gaokun3 专用 profile，并在重启音频栈后写入增益 + `alsactl store`（顺序与原因见 §6.5） |
 
 `17` 是**内核硬性上限**，不是"我们认为安全的经验值" —— 内核已经替用户把这个界限划好了。当前状态即"在不触碰限幅代码的前提下能达到的最大音量"。
 
@@ -753,26 +753,47 @@ pactl info | grep -iE 'server name|default sink'
 # 修改 sound/soc/qcom/sc8280xp.c 去掉 snd_soc_limit_volume   # ← 禁止
 ```
 
-### 7.5 永久生效的 UCM 改动（在 B1 落地前的手工等价物）
+### 6.5 实现细节：UCM 的执行时机（本项目实测，容易踩坑）
+
+把增益写进 UCM 的 `BootSequence` **并不等于它立刻生效**。本机实测的行为是：
+
+| 观测 | 结果 |
+|------|------|
+| 安装 profile 后直接读 `SpkrLeft PA Volume` | 仍是旧值 |
+| 重启 `wireplumber` / `pipewire` 后逐秒读取 | 第 1 秒仍是旧值，**第 2 秒变成 17** |
+| 之后再重启音频栈 | 每次都会重新执行并写回 17 |
+| 把值手工压到 3 后**不做任何重启** | 一直是 3，UCM 不会自己重跑 |
+| 通过 PipeWire 播放 1 秒静音 | **不会**触发 UCM 重跑 |
+| 音效卡空闲掉电复位后 | 控件回到**驱动默认值 0**，UCM 也不会重跑 |
+
+⇒ **结论**：`BootSequence` 只在音频栈启动、由它打开声卡时执行**一次**（约 1–2 秒后）。
+因此正确的操作顺序是 **「安装配置 → 重启音频栈 → 等它跑完 → 再写最终值」**；
+反过来（先写值再重启）会被随后的 UCM 序列覆盖。`scripts/30-audio.sh` 已按此顺序实现。
+
+**跨重启持久化**：本机 `alsa-restore.service` 处于 active，会从
+`/var/lib/alsa/asound.state` 恢复混音器状态。所以脚本在写完增益后额外执行
+`alsactl store`，让增益在**下次开机**也确定生效，而不依赖 UCM 的执行时机
+（已验证 `alsactl store` → `alsactl restore` 往返有效）。
+
+**另一个容易误判的点**：UCM 的 `wsa883x/init.conf` 会把 `SpkrLeft/Right PA Volume`
+合成为虚拟立体声控件 `Speakers`（`HiFi.conf` 里 `PlaybackMixerElem "Speakers"`）。
+看上去像是"桌面音量就是功放增益"，但**实测并非如此** —— 把 PipeWire 的 sink 音量从
+100% 一路降到 20%，`Speakers` 与两个 PA 控件**始终停在 17 不动**。桌面音量走的是
+数字域，功放增益由 UCM 独立设定。
+
+### 6.6 永久生效的 UCM 改动（不要直接改上游文件）
+
+正式做法就是本项目已经实现的 `scripts/30-audio.sh --apply`：新建 gaokun3 专属
+profile 并以 `${CardLongName}.conf` 挂进 `conf.d/`，**不改动上游文件**。
 
 ```bash
-# 备份
-sudo cp /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf \
-        /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf.bak
-
-# 把 BootSequence 的 PA Volume 由 12 改为 17
-sudo sed -i "s/SpkrLeft PA Volume' 12/SpkrLeft PA Volume' 17/" \
-     /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf
-sudo sed -i "s/SpkrRight PA Volume' 12/SpkrRight PA Volume' 17/" \
-     /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf
-grep -n 'PA Volume' /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf
-
-# 回滚
-# sudo mv /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf.bak \
-#         /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf
+sudo ./scripts/30-audio.sh --apply     # 安装 profile + 重启音频栈 + 写增益 + 持久化
+sudo ./scripts/30-audio.sh --revert    # 移除 profile 并把增益还原为基线值 12
 ```
 
-> ⚠️ 直接改 `LENOVO-X13s.conf` 会在 **`alsa-ucm-conf` 包升级时被覆盖**（这正是 right-0903 PR #8 要解决的问题）。正式方案见 §6.2 的 **B1**：新建 `HUAWEI-MateBook-E-Go.conf` 并调整分发器，不改动上游文件。
+> ⚠️ **不要**直接 `sed` 改 `/usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf`：
+> 那会在 `alsa-ucm-conf` 包升级时被覆盖（这正是 right-0903 PR #8 要解决的问题），
+> 而且会把 X13s 机型的配置改坏。正式方案见 §6.2 的 **B1**（已由本项目落地）。
 
 ---
 
@@ -784,6 +805,8 @@ grep -n 'PA Volume' /usr/share/alsa/ucm2/Qualcomm/sc8280xp/LENOVO-X13s.conf
 |---|---|
 | 内核限幅 17 / 81 是**有意为之**，原因写明是缺少主动扬声器保护 | 主线源码注释原文 |
 | 硬件可达 +18 dB、Linux 只用到 0.00 dB | TLV 表 + `Limits: Playback 0 - 17` 实测 + alsa-lib 直读 dB |
+| UCM 的 `BootSequence` 只在音频栈启动打开声卡时执行一次（约 1–2 秒后），不会因播放或控件被改而重跑；音效卡空闲复位会把控件打回驱动默认值 0 | 本机逐秒实测 + 播放静音无效 + `alsactl store`/`restore` 往返验证（§6.5） |
+| 桌面（PipeWire sink）音量**不驱动**功放增益：sink 从 100% 降到 20%，`Speakers` 与两个 PA 控件恒为 17 | 本机逐档实测（§6.5） |
 | 跑的是 X13s 双扬声器 profile | 本机 UCM symlink + 分发文件正则 + 本机 DMI 实测 |
 | 上游 PR #715 与本机现状**行为等价** | 两文件 blob sha 逐字节相同 |
 | Linux 侧**不存在**任何 EQ / DRC / 保护控件 | `wsa883x.c` 全部 7 个控件 + 本机 grep 计数 = 0 |
