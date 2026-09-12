@@ -1,0 +1,71 @@
+# ============================================================================
+# easy-for-gaokun — .gitattributes
+#
+# 目的：本项目的开发机是 Windows，目标机是 Linux/aarch64。
+# 若不强制归一化行尾，Windows 检出的 shell 脚本会带上 CRLF，
+# 在目标机上表现为 `bash: ./install.sh: /bin/bash^M: bad interpreter`。
+# 因此：仓库内一律 LF。
+# ============================================================================
+
+* text=auto eol=lf
+
+# --- 文本：强制 LF ---
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.zsh       text eol=lf
+*.md        text eol=lf
+*.markdown  text eol=lf
+*.txt       text eol=lf
+*.dts       text eol=lf
+*.dtsi      text eol=lf
+*.patch     text eol=lf
+*.diff      text eol=lf
+*.conf      text eol=lf
+*.rules     text eol=lf
+*.service   text eol=lf
+*.desktop   text eol=lf
+*.xml       text eol=lf
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.toml      text eol=lf
+*.cfg       text eol=lf
+*.ini       text eol=lf
+*.py        text eol=lf
+*.c         text eol=lf
+*.h         text eol=lf
+*.cpp       text eol=lf
+Makefile    text eol=lf
+LICENSE     text eol=lf
+
+# --- 二进制：禁止任何转换 ---
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.webp      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.gz        binary
+*.xz        binary
+*.zst       binary
+*.bz2       binary
+*.7z        binary
+*.zip       binary
+*.deb       binary
+*.dtb       binary
+*.dtbo      binary
+*.ko        binary
+*.efi       binary
+*.exe       binary
+*.dll       binary
+*.sys       binary
+*.cat       binary
+*.mbn       binary
+*.jsn       binary
+*.bin       binary
+*.fw        binary
+
+# --- 语言统计修正 ---
+*.md        linguist-documentation
+docs/**     linguist-documentation
