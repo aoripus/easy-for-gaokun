@@ -183,15 +183,15 @@ easy-for-gaokun/
 ├── LICENSE
 ├── CONTRIBUTING.md
 ├── scripts/                 一键化适配与诊断工具
-│   ├── lib/common.sh        公共函数库
-│   ├── 00-preflight.sh      设备鉴别与前检（变体红线校验）
-│   ├── 10-boot.sh           引导条目修正
-│   ├── 20-touchscreen.sh    触屏诊断与修复
-│   ├── 30-display.sh        竖屏与显示配置
-│   ├── 40-audio.sh          音频子系统修复
-│   ├── 50-desktop.sh        平板化桌面（屏幕键盘、手势、扩展）
-│   ├── 60-waydroid.sh       Android 容器
-│   └── 90-report.sh         一键生成诊断报告
+│   ├── lib/common.sh           公共函数库
+│   ├── 00-preflight.sh         设备鉴别与前检（变体红线校验）
+│   ├── 10-install-dualboot.sh  安装到内置盘（Windows + Ubuntu 双系统）
+│   ├── 20-touchscreen.sh       触屏诊断与修复（gpio174 接口模式）
+│   ├── 30-display.sh           竖屏与显示配置                     [规划中]
+│   ├── 40-audio.sh             音频子系统修复                     [规划中]
+│   ├── 50-desktop.sh           平板化桌面（屏幕键盘、手势、扩展）  [规划中]
+│   ├── 60-waydroid.sh          Android 容器                       [规划中]
+│   └── 90-report.sh            一键生成诊断报告
 ├── patches/                 面向上游的内核 / 设备树补丁
 └── docs/                    技术文档
     └── install-dualboot.md  双系统安装完整步骤与踩坑记录
@@ -211,8 +211,8 @@ cd easy-for-gaokun
 #    校验设备树、大核频率、面板与触屏设备，任一红线不过则中止
 sudo ./scripts/00-preflight.sh
 
-# ② 引导条目修正                  [未实现]
-sudo ./scripts/10-boot.sh
+# ② 安装到内置盘（Windows + Ubuntu 双系统）   [已实现并实机验证]
+sudo ./scripts/10-install-dualboot.sh --target /dev/nvme0n1p4 --image ubuntu-26.04-gaokun3.img
 
 # ③ 触屏诊断与修复                [已实现并实机验证]
 sudo ./scripts/20-touchscreen.sh
@@ -229,7 +229,7 @@ sudo ./scripts/50-desktop.sh
 # ⑦ Android 容器（Waydroid）      [未实现]
 sudo ./scripts/60-waydroid.sh
 
-# ⑧ 生成诊断报告（提 issue 用）   [未实现]
+# ⑧ 生成诊断报告（提 issue 用）   [已实现]
 sudo ./scripts/90-report.sh
 ```
 
