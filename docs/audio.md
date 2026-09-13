@@ -1,7 +1,7 @@
 # 音频质量：诊断与调优
 
 > **概述**：GK-W76 上"音质不像四扬声器 HUAWEI SOUND"不是故障，而是**三层叠加的结果**：内核主动把功放增益锁在 0.00 dB（注释原文 `until we have active speaker protection in place`）；Linux 侧不存在 Windows 那套 Histen APO + ADSP 逐机型调音；加载的是为双扬声器 ThinkPad X13s 编写的 UCM profile。本项目处置方式：**只把 PA Volume 从 UCM 默认的 12 提到内核上限 17，不取消内核限幅。**
-
+>
 > **置信度标记**：【已核实】直读第一手源码、固件、上游 API 或本机实测 ·【社区报告】论坛 / 邮件列表 / 第三方 ·【推测】本项目推断。
 > **实测基线**：Ubuntu 26.04 + `7.1.0-rc3-gaokun3-el2+`，声卡名 `SC8280XP-HUAWEI-GAOKUN3`（`/proc/asound/cards` 可见），`audioreach-tplg.bin` 已加载且**能正常出声**。
 > **本机 Windows 侧驱动转储 `Drv/` 仅作只读参考，永不入库**（专有软件，体积 1153.6 MB）。
@@ -180,7 +180,7 @@ DAPM 仅两个 widget（`SND_SOC_DAPM_INPUT("IN")` / `SND_SOC_DAPM_SPK("SPKR")`�
 
 > "Speaker Protection is capability of **ADSP** to adjust the gain during playback to different speakers and their temperature. This allows good playback without blowing the speakers up. Implement parsing `MODULE_ID_SPEAKER_PROTECTION` from Audioreach topology and sending it as command to the ADSP."
 > — commit `0db76f5b2235ab456814ee8e4e2cdf0cef09dd6b`
-
+>
 > "VI Sense module in ADSP is responsible for feedback loop for measuring current and voltage of amplifiers, **necessary for proper calibration of Speaker Protection algorithms**."
 > — commit `3e43a8c033c3187e0f441ed5570a0fb5dcc9dafb`
 
@@ -535,13 +535,13 @@ Recently, use the X13s' profile. \
 【社区报告】[Ubuntu Discourse：Status of Ubuntu support for Lenovo ThinkPad X13s](https://discourse.ubuntu.com/t/status-of-ubuntu-support-for-lenovo-thinkpad-x13s/44652)（348 帖，32.5k 浏览）：
 
 > #6：*"'Audio volume is very low.' Well, it is low because the speaker hardware is set to low levels in the mixer … set them [SpkrRight/SpkrLeft PA Volume] to like 80…90."*
-
+>
 > #8（juergh）：*"…SpkrLeft PA Volume all the way up but it doesn't change the volume. I'm also a little reluctant since there are reports that **you can blow your X13s speakers if you're not careful**."*
-
+>
 > #14：*"At about 80% the audio is just barely usable, but anything beyond 80% and the audio becomes distorted. Its not the speaker system. The same distortion can be heard through headphones."*
-
+>
 > **#97（juergh，Canonical）—— 最权威的一条**：*"And yes, the sound level is still **deliberately set to low because HW audio protection is not enabled** and **you can blow your speakers if you fiddle with the wrong control**."*
-
+>
 > #104：*"The sound is not super quiet as it was, but it is **still significantly quieter than under Windows**, so the alsamixer controls to bring it up to normal levels are still needed."*
 
 【社区报告】[Launchpad #2115898「Audio broken on ThinkPad X13s」](https://bugs.launchpad.net/ubuntu/+source/linux/+bug/2115898)：自 `6.14.0-17-generic` 起音频损坏，Ubuntu 自有 SAUCE 补丁名为 *"Change: cracking sound fix"*；Juerg 指出 *"Both mainline 6.14.4 and 6.14.6 work just fine, so this is Ubuntu breakage."* 修法是 revert 该 SAUCE commit。
