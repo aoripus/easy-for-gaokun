@@ -322,7 +322,7 @@ void VedHwIoOut(CTX *ctx, uint32_t off, uint32_t val) {
 
 ## 4. 上电时间线（含分支）
 
-```
+```text
 VedInitVideoCore(ctx, w24 = ePowerTransType/目标状态)
 │
 ├─ [日志] "VedInitVideoCore:ePowerTransType"                (0x140388a70)
