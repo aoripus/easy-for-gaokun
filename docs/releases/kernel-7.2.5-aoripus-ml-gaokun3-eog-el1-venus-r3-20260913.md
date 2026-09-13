@@ -69,11 +69,16 @@ r3 装机后的复核结果见 §2.4。
 | 空闲 IRQ 速率（面板点亮、无人触摸） | **23.1 Hz**（对照：策略关闭时 120 Hz）✅ |
 | 空闲 kthread CPU | **0.50%**（单核；对照 2.00%）✅ |
 | 60 s 触发 | 开机后 `dmesg`：`idle: one frame every 30ms after 7200 contact-free frames`（t=109 s，含开机初始化），`idle_state` 显示 `active=1` ✅ |
-| 触摸唤醒 | 见 §2.1（r3-dev 同路径实测）；r3 上的复核见下 |
+| 触摸唤醒 | ✅ **已在 r3 正式内核上确认**（见下方日志） |
 
-> r3 上的唤醒复核：触摸屏幕后应出现 `himax-spi spi0.0: idle exit: touch after 30ms sampling`，
-> 且 IRQ 速率短暂回到 ~120 Hz。**若该行未出现，请勿使用本内核**并立即回滚
-> （`gk-install-kernel.sh --kver … --uninstall`）。
+> **r3 上的唤醒复核（2026-09-13，真手指点按屏幕）【已核实】**：`dmesg` 出现**两次独立**事件
+> `himax-spi spi0.0: idle exit: touch after 30ms sampling`（t=1138.5 s 与 t=1645.9 s），
+> 两次之间 t=1204.0 s 又按"60 s 无触点"重新进入空闲（1138→1204 = 65.5 s，符合 7200 帧 + 开销）
+> ⇒ **进空闲 → 触摸退出 → 松手重新计时** 的完整闭环在正式内核上成立。
+> 退出后 3 s 采样窗口内 `msmgpio 175` 增量 **356（≈118.7 Hz）**，即已回到 120 Hz 中断模式（对照空闲 23 Hz）；
+> 同时 `idle_state` = `active=0 sampling=0 frames=2188 threshold=7200 poll_ms=30`（松手后重新累积，走向下一次空闲）。
+>
+> 若该行**未**出现，请勿使用本内核并立即回滚（`gk-install-kernel.sh --kver … --uninstall`）。
 
 ### 2.2 ★ 为什么不采用"让 IC 自己睡"（AFE `0x0A`）
 
