@@ -1,0 +1,210 @@
+# 自研内核：Linux stable v7.2.5 + EL1（gaokun3 / SC8280XP）
+
+> 本文记录 **easy-for-gaokun 项目自己构建内核**的完整配方与依据。
+> 基线是 **mainline 的 stable 版本**（**不用 RC**），目标是**以 EL1（标准启动级别）运行**，
+> 视频硬解走 **venus**（EL1 下唯一可行路径）。
+> 结论标注：【已核实】=有实机或源码证据；【推测】=推理。
+
+---
+
+## 1. 为什么是这个组合
+
+| 决策 | 理由 |
+|---|---|
+| 基线用 **v7.2.5（stable）** | 用户明确要求"不要 RC，只要 mainline 的 stable"；7.1.13 已 **EOL** |
+| 启动级别用 **EL1** | venus/iris 上游都按 EL1 写（`qcom_mdt_load(..., NULL)` + 裸 `auth_and_reset`）；bare-metal EL2 下 PAS reset 不可靠，且**视频核没有 attach 兜底**（见 `patches/iris-el2/README.md`） |
+| 视频驱动用 **venus** 而非 iris | v7.3-rc1 才有 iris 的 sc8280xp DT 节点，且 iris/venus 节点**同地址不可共存**；社区（pgs666，内核 7.1.8）实测可用的就是 venus 【已核实：社区 defconfig `VENUS=m`、板级 `&venus{status=okay}`、`tools/mpv/mpv.conf` 用 `v4l2m2m-copy`】 |
+| 补丁集自己维护 | 上游 buildbot 的补丁集是为 `v7.2-rc2` 生成的，对 7.2.5 **全部落不上**（见 §4）；本项目的补丁集已按 7.2.5 重做并快照为单一补丁 |
+
+**代价（必须写清楚）**：EL1 下**没有 `/dev/kvm`**（EL2 才有虚拟化）；EL1 的 DSP 由固件里的 QHEE 代管，
+EL2 则需要 `qebspil` 预启动 DSP。**硬解与 KVM 目前互斥。**
+
+---
+
+## 2. 构建宿主与工具链
+
+| 项 | 值 |
+|---|---|
+| 宿主 | VMware Debian 12 虚拟机（x86_64，16 vCPU，17 GB RAM） |
+| 交叉工具链 | `aarch64-linux-gnu-gcc` 12.2.0 |
+| 加速 | ccache（`CCACHE_BASEDIR=/root/gaokun`）；`-j16` |
+| 平板能否自编译 | **不能**：ARM64 原生编译实测 30 s 后硬断电（项目早期结论，勿重试） |
+
+```bash
+# 宿主机准备
+apt-get install -y gcc-aarch64-linux-gnu ccache bison flex libssl-dev bc \
+                   libelf-dev python3 device-tree-compiler
+```
+
+---
+
+## 3. 配方（可复现步骤）
+
+```bash
+BASE=/root/gaokun
+VER=7.2.5
+
+# 1) 取 stable 源码（kernel.org 直连可用；GitHub 需代理）
+cd $BASE
+curl -sSLO https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-$VER.tar.xz
+mkdir -p linux-el1-$VER && tar -xf linux-$VER.tar.xz -C linux-el1-$VER --strip-components=1
+cd linux-el1-$VER && git init -q -b main && git add -A && git commit -qm "linux-$VER pristine"
+
+# 2) 施加补丁集（见 §4；此处用带 fuzz 的强制应用，因为补丁为 7.2-rc2 生成）
+#    —— 详见 §4.2 的逐条命令
+# 3) 追加板级 venus 使能 + 触屏模式脚（见 §4.3）
+
+# 4) 配置
+export ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+make O=$BASE/out-el1-$VER ARCH=arm64 gaokun3_defconfig
+CFG=scripts/config
+$CFG --file $BASE/out-el1-$VER/.config --set-str LOCALVERSION "-aoripus-ml-gaokun-eog-el1"
+$CFG --file $BASE/out-el1-$VER/.config --disable VIDEO_QCOM_IRIS   # ★ 见 §5 的静默陷阱
+$CFG --file $BASE/out-el1-$VER/.config --module  VIDEO_QCOM_VENUS
+$CFG --file $BASE/out-el1-$VER/.config --module  SM_VIDEOCC_8350
+$CFG --file $BASE/out-el1-$VER/.config --module  DRM_PANEL_HIMAX_HX83121A
+$CFG --file $BASE/out-el1-$VER/.config --module  I2C_HID_OF
+$CFG --file $BASE/out-el1-$VER/.config --disable MODULE_SIG
+$CFG --file $BASE/out-el1-$VER/.config --disable MODULE_SIG_ALL
+$CFG --file $BASE/out-el1-$VER/.config --disable SYSTEM_TRUSTED_KEYS
+$CFG --file $BASE/out-el1-$VER/.config --disable SYSTEM_REVOCATION_KEYS
+make O=$BASE/out-el1-$VER ARCH=arm64 olddefconfig
+
+# 5) 编译
+make O=$BASE/out-el1-$VER ARCH=arm64 -j16 Image modules dtbs
+```
+
+现成脚本：`/root/gaokun/build-el1-x86.sh`（阶段 1：解包 + 补丁 + 配置 + 编译）
+与 `/root/gaokun/build-el1-phase2.sh`（阶段 2：仅配置 + 编译，用于补丁已就位时）。
+
+---
+
+## 4. 补丁集
+
+### 4.1 来源与必要性
+
+| 组 | 来源 | 作用 | 必要性 |
+|---|---|---|---|
+| `upstream/*` | 上游化补丁（多位作者） | gaokun3 板级基础、显示 DSI 稳定性、EC、EC 温度、音频内存区、摄像头 | 部分必需；其中 `0017`（PDC map）**已在 7.2.5 上游**（`96f65d01f313`），`0001`（ADSP FastRPC）**已上游**（`1825ac5e2ad2`） |
+| `others/0002,0005,0006` | 社区 | 面板驱动默认开 DSC；DPU DSC timing 宽度取整；面板 `bl` 供电表 | **内屏点亮必需**（2560×1600 双 DSI 走 DSC） |
+| `others/0003` | `chiyuki0325/EGoTouchRev-Linux` 系 | Himax HX83121A **SPI** 触屏驱动（12 个文件） | 触屏必需（走 SPI 路线时） |
+| `others/0007` | 社区 | q6apm 流内存映射修复 | 音频 |
+| `0099` | 社区板级 DTS + defconfig 导入 | 内屏 DSI/面板/背光、SPI 触屏、EC、热区等**全部板级描述** | **必需**（上游 7.2.5 的板级 DTS 内屏是空的，只有 `simple-framebuffer`） |
+| `media/0002–0006` | `jhovold/linux` `wip/sc8280xp-6.16`（Konrad Dybcio 原作） | venus 资源结构 `sm8350_res`/`sc8280xp_res` + `sc8280xp.dtsi` 的 `venus`/`videocc`/`pil_video_mem` | **硬解必需**，且是**本项目的真实增量**（mainline 里这些都不存在） |
+| `patches/el2/*` | TravMurav | EL2 的 SCM/SHM/remoteproc 接管 | **本内核一律不套**（我们要 EL1） |
+
+### 4.2 施加上，7.2-rc2 补丁集对 7.2.5 **全部落不上**（已核实）
+
+`git apply` 全失败；`git apply --3way` 也不行（3-way 需要补丁的 pre-image blob 在对象库里，
+而补丁来自 buildbot 的 7.2-rc2 树）。失败的连锁原因：
+
+1. `0099` 落不上 → 社区板级 DTS 没进树 → 依赖它的补丁（`gpio174`、SPI 触屏节点等）全部连坐；
+2. 7.2.5 的 `drivers/media/platform/qcom/venus/core.c` 多了
+   `#if (!IS_ENABLED(CONFIG_VIDEO_QCOM_IRIS))` 守卫（第 998、1183 行），把 `media/0004/0005` 的插入点整体移位。
+
+**解决办法：带 fuzz 强制应用 + 逐个判定"是否已在树中"**
+
+```bash
+P=/root/gaokun/buildbot-patches
+ALL="$P/upstream/*.patch $P/others/*.patch $P/0099-*.patch \
+     $P/media/0002*.patch $P/media/0003*.patch $P/media/0004*.patch \
+     $P/media/0005*.patch $P/media/0006*.patch /root/gaokun/0001-touchscreen-gpio174.patch"
+for f in $ALL; do
+  if patch -p1 --dry-run -F3 -R -i "$f" >/dev/null 2>&1; then echo "ALREADY $f"; continue; fi
+  if patch -p1 --dry-run -F3 -i "$f" >/dev/null 2>&1; then patch -p1 -F3 -i "$f"; echo "OK $f"; continue; fi
+  patch -p1 -F3 --no-backup-if-mismatch -r "/tmp/rej/$(basename $f).rej" -i "$f"
+  echo "PARTIAL $f (rejects: $(grep -c '^@@' /tmp/rej/$(basename $f).rej 2>/dev/null || echo 0))"
+done
+```
+
+**结果：只有 2 个 hunk 被拒**，手工收敛如下（两处都已写进最终补丁）：
+
+| 文件 | 手工改动 |
+|---|---|
+| `drivers/pinctrl/qcom/pinctrl-sc8280xp.c` | `sc8280xp_pdc_map[]` 删除 `{ 175, 237 }`（让触屏 gpio175 不被映射到 PDC，避免唤醒 IRQ 干扰） |
+| `arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts` | EC 节点：上游 7.2.5 为 `interrupts-extended = <&tlmm 103 …>`，改为 `<&pdc 215 …>`，并补 `enable-gpios = <&tlmm 173>`、`bat-gpios = <&tlmm 41>`、`#thermal-sensor-cells = <1>`、`pinctrl-0 = <&ec_default>` |
+
+**快照产物**：`/root/gaokun/gaokun3-7.2.5-el1.patch`
+（**159,047 B，21 个文件，+4512/−196**）—— 这是本项目相对 mainline v7.2.5 的**自有补丁**。
+
+### 4.3 追加的板级改动（我们自己写的）
+
+```dts
+&venus {
+	firmware-name = "qcom/sc8280xp/HUAWEI/gaokun3/qcvss8280.mbn";
+	status = "okay";
+};
+```
+
+`media/0006` 在 `sc8280xp.dtsi` 里加的 venus 节点是 `status = "disabled"`，必须由板级覆写为 `okay`；
+`firmware-name` 大小写敏感（`HUAWEI` 全大写）。
+
+---
+
+## 5. ★ 必须钉死的静默陷阱：`CONFIG_VIDEO_QCOM_IRIS` 必须为 `n`
+
+`drivers/media/platform/qcom/venus/core.c` 里，`sm8250_res` / `sc7280_res` 及其 of_match 条目
+**整段包在 `#if (!IS_ENABLED(CONFIG_VIDEO_QCOM_IRIS))` 内**（7.2.5 第 998、1183 行）；
+`media/0004`/`0005` 的插入点正在这段里。而 **arm64 上游 defconfig 默认同时开着**
+`CONFIG_VIDEO_QCOM_IRIS=m` 与 `CONFIG_VIDEO_QCOM_VENUS=m`（v7.2.5 `arch/arm64/configs/defconfig` 第 929/930 行）。
+
+⇒ 若直接 `make defconfig`，预处理器会**删掉** `qcom,sm8350-venus` / `qcom,sc8280xp-venus`，
+**venus 永不 probe，而且没有任何编译错误**。表现为：装完机、`/dev/video*` 里一个解码器都没有。
+
+**构建后必须断言**：
+
+```bash
+grep -q '^CONFIG_VIDEO_QCOM_VENUS=m' out/.config
+grep -q '^# CONFIG_VIDEO_QCOM_IRIS is not set' out/.config
+grep -c 'qcom,sm8350-venus' drivers/media/platform/qcom/venus/core.c   # 应为 1
+```
+
+**产物 DTB 断言**（EL1 DTB 必须干净）：
+
+```bash
+DTB=out/arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dtb
+for k in gpio174 sm8350-venus qcvss8280.mbn; do grep -aq "$k" $DTB || echo "缺 $k"; done
+grep -aq 'shm-bridge-vmid' $DTB && echo "不该有（EL2 专属）"
+grep -aq 'broken-reset'    $DTB && echo "不该有（EL2 专属）"
+```
+
+---
+
+## 6. defconfig 关键项
+
+| 配置 | 值 | 说明 |
+|---|---|---|
+| `CONFIG_VIDEO_QCOM_VENUS` | `m` | EL1 硬解路径 |
+| `CONFIG_VIDEO_QCOM_IRIS` | **必须 not set** | 见 §5 |
+| `CONFIG_SM_VIDEOCC_8350` | `m` | venus 的 `videocc`（上游有驱动，但 arm64 defconfig 未开） |
+| `CONFIG_DRM_PANEL_HIMAX_HX83121A` | `m` | 内屏面板驱动（上游有驱动，defconfig 未开） |
+| `CONFIG_I2C_HID_OF` | `m` | 触屏"路线 A"（上游 I²C-HID 描述）时需要 |
+| `CONFIG_VIDEO_QCOM_CAMSS` | `m` | 摄像头（板级 DTS 里已启用） |
+| `CONFIG_QCOM_TZMEM_MODE_SHMBRIDGE` | `y` | SHM bridge；EL1 下由 hypervisor 代管，但仍需编入 |
+| `CONFIG_LOCALVERSION` | `-aoripus-ml-gaokun-eog-el1` | 发布串命名规范 |
+
+---
+
+## 7. 已知缺口 / 下一轮迭代
+
+| 缺口 | 影响 | 处理 |
+|---|---|---|
+| `qcom,force-gsi-mode` 无人读取 | DTS 里写了该属性，但 7.2.5 的 `spi-geni-qcom.c` **不读它**（binding 亦无该属性）⇒ SPI 退回 **FIFO 模式**：触屏**功能可用、性能略低** | 补 `patches/upstream/0024`（1,663 B，Pengyu Luo），或跟进其 **v2**（DMA 可用时自动用 GSI） |
+| 触屏两条路线未做 A/B | 上游 I²C-HID（零补丁）vs 社区 SPI（`gpio174` 拉低） | 两版 DTB 各实测一次，见 `AGENTS.md` §7.9.4 |
+| 热管理补丁未纳入 | 无 75 °C 主动节流 | 社区 `patches/gaokun3/0002,0004` 可移植 |
+| 音频 UCM | `alsa-ucm-gaokun3` 是独立包 | 从社区 release 取，或自行编写 |
+
+---
+
+## 8. 产物
+
+| 文件 | 说明 |
+|---|---|
+| `Image` | ARM64 内核镜像 |
+| `sc8280xp-huawei-gaokun3.dtb` | **EL1** 用（本文件） |
+| `sc8280xp-huawei-gaokun3-el2.dtb` | EL2 用（同一构建顺带产出，本内核不推荐） |
+| `modules.tar.zst` | `/lib/modules/<release>/` 全量模块树 |
+| `config-<release>` | 供审计的完整 `.config` |
+| `gaokun3-7.2.5-el1.patch` | **我们的补丁**（相对 mainline v7.2.5） |
+
+安装/回滚：`scripts/gk-install-kernel.sh`（只新增 BLS 条目，默认不动 `loader.conf`，支持 `--uninstall`）。
