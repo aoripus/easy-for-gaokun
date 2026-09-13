@@ -131,7 +131,7 @@ Windows 侧接口逆向记录见 [`docs/windows-video-tz-interface.md`](../../do
 
 目标机的视频硬解单元是 Qualcomm IRIS (Gen1)，不是 Venus。基线内核以 `CONFIG_VIDEO_QCOM_VENUS=m` 配套一个 2023 年形态的 venus 设备树节点（`compatible = "qcom,sm8350-venus"`、`iommus = <&apps_smmu 0x2e00 0x400>`），启动时稳定报错：
 
-```
+```text
 qcom-venus aa00000.video-codec: error -22 initializing firmware qcom/sc8280xp/HUAWEI/gaokun3/qcvss8280.mbn
 qcom-venus aa00000.video-codec: fail to load video firmware
 ```
