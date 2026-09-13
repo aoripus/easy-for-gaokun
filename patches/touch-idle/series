@@ -1,0 +1,5 @@
+# patches/touch-idle/series —— 应用顺序
+#
+# ★ 基线不是 mainline：本补丁打在「社区 HX83121A SPI 驱动 + 本项目 AFE 命令邮箱传输层」
+#   之上，必须在本项目 gaokun3 补丁集之后应用。详见同目录 README 的「补丁基线」一节。
+0001-input-himax-hx83121a-fix-irq-enable-and-idle-sampling.patch
