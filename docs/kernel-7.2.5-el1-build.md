@@ -355,7 +355,7 @@ grep -aq 'broken-reset'    $DTB && echo "不该有（EL2 专属）"
 ### 9.1 r3 构建与产物（2026-09-13）
 
 - 配方**与 §3 完全相同**，只把 `CONFIG_LOCALVERSION` 换成 `-aoripus-ml-gaokun3-eog-el1-venus-r3`；
-- 构建机 VM `192.168.236.129`（`build-el1-phase2.sh`，ccache 命中时约 3 分钟，360 个模块）；
+- 构建机 VM（x86_64 Debian，局域网地址不记录在本公开仓库）（`build-el1-phase2.sh`，ccache 命中时约 3 分钟，360 个模块）；
 - 门禁全通过：`uname -r` 无尾部 `+`、EL1 DTB 含 `gpio174`/`sm8350-venus`/`qcvss8280.mbn`/`hx83121a`
   且不含 `shm-bridge-vmid`/`broken-reset`；
 - 产物（8 项，与 r1 同名同结构）：`Image` 24,734,208 B、`modules-…-r3.tar.zst` 6,502,281 B、
