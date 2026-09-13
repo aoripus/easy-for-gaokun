@@ -11,7 +11,7 @@
 
 ### 0.1 内核串命名规范（2026-09-13 定稿生效）
 
-```
+```text
 uname -r = <上游>-aoripus-ml-gaokun3-eog-<级别>-<VPU驱动>-r<n>
 本内核   = 7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1          （41 字符）
 tag      = kernel-<完整内核串>-<YYYYMMDD>
@@ -35,7 +35,7 @@ tag      = kernel-<完整内核串>-<YYYYMMDD>
 
 本文**已经实机验证的那一次构建**，其真实 `uname -r` 是：
 
-```
+```text
 7.2.5-aoripus-ml-gaokun-eog-el1+          ← 旧命名，按新规范追溯记为 r0
 ```
 
