@@ -1,34 +1,35 @@
 # 用 IRIS 驱动编译内核（gaokun3 / SC8280XP）构建配方
 
 > 目标机：HUAWEI MateBook E Go 2022 性能版（GK-W76 / SC8280XP / 设备树代号 `gaokun3`）。
-> 目的：用 **`CONFIG_VIDEO_QCOM_IRIS`**（而非 `CONFIG_VIDEO_QCOM_VENUS`）编译内核，尝试驱动视频硬解单元。
-> **只编译，不安装进 ESP。** `buildbot` = 本机克隆 `D:\_gaokun-refs\linux-gaokun-buildbot`。
+> 用途：以 **`CONFIG_VIDEO_QCOM_IRIS`** 取代 `CONFIG_VIDEO_QCOM_VENUS` 编译内核，用于验证视频硬解单元。
+> 构建基线为上游 **`v7.2-rc2`**；本配方只产出 `Image` / `modules` / `dtbs`，不写入 ESP。
+> 本文中 `buildbot` 指本机克隆 `D:\_gaokun-refs\linux-gaokun-buildbot`。
 > 标注：【已核实】= 直读一手源码/官方 API/内核邮件列表原文；【社区报告】= 参与者自述实测；【推测】= 推断。
 
 ---
 
-> ## ⚠️ 实机验证后的两条修正（2026-09-13）
+> ## 实机验证后的两条修正（2026-09-13）
 >
-> 本文档的结论已在目标机上实际构建验证，其中两条与下文原稿不同，**以本框为准**：
+> 本文档的结论已在目标机上实际构建验证，其中两条与下文原稿不同，以本节为准：
 >
-> 1. **基线必须用 `v7.2-rc2`，不能用 `v7.1-rc3`。** 原稿据 release body 推断基线应取
->    `v7.1-rc3`（运行中的内核确实是它编出来的）。但把 buildbot **当前**的补丁集打到
->    `v7.1-rc3` 上时，`upstream` / `others` / `0099` **三组全部应用失败**
->    （`git am` 与 `git apply --3way` 都失败），直接导致 `gaokun3_defconfig` 缺失。
->    原因：补丁集是随 buildbot 仓库演进的，当前版本面向 `v7.2-rc2`
->    （`scripts/local/build_kernel.sh` 与构建指南的默认值也是它）。改到 `v7.2-rc2` 后
->    **三组补丁一次全过**。
+> 1. **构建基线为 `v7.2-rc2`，不是 `v7.1-rc3`。** 原稿据 release body 推出构建应取
+>    `v7.1-rc3`（在产内核 `7.1.0-rc3-gaokun3-el2+` 确实由它编出）。但把 buildbot **当前**的补丁集
+>    打到 `v7.1-rc3` 上时，`upstream` / `others` / `0099` **三组全部应用失败**
+>    （`git am` 与 `git apply --3way` 均失败），由此 `gaokun3_defconfig` 缺失，配置退回
+>    generic defconfig。原因：补丁集随 buildbot 仓库演进，当前版本面向 `v7.2-rc2`
+>    （`scripts/local/build_kernel.sh` 与构建指南的默认值也是它）。改用 `v7.2-rc2` 后
+>    **三组补丁全部干净应用**。
 >    ⇒ 本配方产出的是「**v7.2-rc2 + buildbot 当前补丁集 + 前置 IRIS 节点**」的内核，
->    **不是**在产内核的逐字节复刻。
-> 2. **`patches/media/` 整目录跳过是对的**，但 §4.4.1 的 include 必须加**三个**（含
->    `dt-bindings/reset/qcom,sm8350-videocc.h`）；只加 clock 那份会得到
+>    **不是**在产内核的逐字节复刻，两者的 `uname -r` 不同。
+> 2. **`patches/media/` 整目录跳过是对的**，但 §4.4.1 的 include 需要加**三个**（含
+>    `dt-bindings/reset/qcom,sm8350-videocc.h`）；只加 clock 那一份会得到
 >    `Lexical error: ... Unexpected 'VIDEO_CC_MVS0C_CLK_ARES'`。详见 §4.4.1。
 >
 > 另注：`patches/el2/` 中有 **1 个补丁**（`drivers/soc/qcom/smp2p.c`）在 `v7.2-rc2` 上
-> 打不上，其余 21 个正常；这不影响 `Image`/`modules`/`dtbs` 的构建，但会影响 EL2
-> 下 DSP/remoteproc 的行为，需启动验证时留意。
+> 无法应用，其余 21 个正常；这不影响 `Image`/`modules`/`dtbs` 的构建，但会影响 EL2
+> 下 DSP/remoteproc 的行为，启动验证时应留意。
 
-## 1. 三条与既有认知相反、且会改变做法的核实结果
+## 1. 三项核实结果
 
 **1.1 源码是纯上游 `torvalds/linux`，没有 gaokun 内核分支。**
 【已核实】`buildbot/.github/workflows/gaokun3-package-debs.yml` 用 `repository: torvalds/linux` +
@@ -453,7 +454,7 @@ v4l2-ctl --list-devices          # 期望出现 Iris Decoder
 | 1 | 本机 `qcvss8280.mbn` 与 IRIS Gen1 的兼容性 | 【推测】同 SoC 的 X13s blob（版本串 `video-firmware.1.1-b158…`）被【社区报告】确认可用；gaokun3 原厂 blob 是否同代次**未验证**。失败先换 §2.3 的 X13s 版。 |
 | 2 | 手改 DTS 后 DTC 是否零警告 | 【推测】节点照抄已合并的上游 commit，属性名/常量已逐个核验存在；但**未在真实 v7.1-rc3 树上编译过**。报错先看 DTC 行号。 |
 | 3 | `patches/upstream/*`、`others/*`、`0099` 是否全部干净应用 | 【推测】属 v7.1-rc3 时代补丁，理论干净；**未实机验证**。冲突按 §4.2 处理。 |
-| 4 | `CONFIG_VIDEO_DEV` 经 `olddefconfig` 后是否确为 `y` | 【已核实】Kconfig `default` 由 `MEDIA_PLATFORM_SUPPORT` 触发，§4.3 亦已显式 `--enable` 兜底；**编译后务必按 §5.1 复核**。 |
+| 4 | `CONFIG_VIDEO_DEV` 经 `olddefconfig` 后是否确为 `y` | 【已核实】Kconfig `default` 由 `MEDIA_PLATFORM_SUPPORT` 触发，§4.3 亦已显式 `--enable` 兜底；**编译后应按 §5.1 复核**。 |
 | 5 | 冷缓存耗时与磁盘占用 | 【推测】15–30 分钟 / 3–6 GB 构建目录。无该配置的公开实测；CI 热缓存数据见 §4.5。 |
 | 6 | Ubuntu 26.04 的 GCC / binutils / OpenSSL 具体版本号 | 【未核实】未查证。上游最低要求见 `Documentation/process/changes.rst`（GNU C 8.1、binutils 2.30、pahole 1.26）。 |
 | 7 | 是否有 SC8280XP 上 IRIS 失败的报告 | 【已核实-否定】未找到 gaokun3 或 Windows Dev Kit 2023 的任何 IRIS 报告；已找到的 SC8280XP 实测均成功（X13s，fluster H.264/H.265/VP9）。"没有失败报告" ≠ "不会失败"。 |
