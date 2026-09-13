@@ -116,7 +116,7 @@ Linux 可走的路（寄存器、参数、平台数据、固件代次、调用�
 
 ### 根因原文（上游 `el2-patches/0016` 与 `0017`，Stephan Gerhold）
 
-```
+```text
 The remoteproc PAS firmware interface does not work properly when running
 bare-metal without hypervisor in EL2. It's possible to authenticate and
 start new firmware, but the remoteproc is never actually brought out of
