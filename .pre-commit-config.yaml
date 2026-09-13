@@ -1,0 +1,53 @@
+# ============================================================================
+# easy-for-gaokun — pre-commit 钩子
+#
+# 本地提交前的第一道闸；CI（.github/workflows/ci.yml）是权威执行环境，
+# 两边规则保持一致。版本号由 `pre-commit autoupdate` 维护。
+# 安装：python -m pip install pre-commit && pre-commit install
+# ============================================================================
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        # 补丁与 Markdown 的行尾空白有语义，交给 .editorconfig 管辖
+        exclude: '\.(patch|diff)$'
+      - id: end-of-file-fixer
+        exclude: '\.(patch|diff)$'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=2048']
+      - id: mixed-line-ending
+        args: ['--fix=no']      # 仓库一律 LF（见 .gitattributes）：只报错，不自动改
+      - id: check-executables-have-shebangs
+      - id: check-symlinks
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ['-x']            # 跟随 source scripts/lib/common.sh
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.43.0
+    hooks:
+      - id: markdownlint
+        args: ['--config', '.markdownlint-cli2.yaml']
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: ['--fix']
+      - id: ruff-format
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.7
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.23.3
+    hooks:
+      - id: gitleaks
