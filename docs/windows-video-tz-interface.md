@@ -70,7 +70,7 @@ Linux 的 iris 驱动只走 **SIP SMC** 通路（`QCOM_SCM_SVC_MP` / `QCOM_SCM_M
 
 用 `tools/pas-probe/` 在本机把两套表连同若干变体逐一打过：
 
-```
+```text
 mpvv(其它芯片表,  1.5 GiB, 16 MiB, 40 MiB)  = -5
 mpvv(1.5 GiB + 尾部对齐)                    = -5
 mpvv(0x60000000, 0, 0x60000000)             = -5
