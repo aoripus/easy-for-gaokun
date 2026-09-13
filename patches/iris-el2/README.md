@@ -1,5 +1,18 @@
 # patches/iris-el2 —— IRIS 视频驱动在 EL2 下的两处修复
 
+> **元数据**（字段定义见 [`patches/README.md`](../README.md)）
+> - **用途**：IRIS 视频驱动在 EL2 下的适配 —— 分配 `qcom_scm_pas_context` 并置 `use_tzmem`，
+>   改用 `qcom_scm_pas_prepare_and_auth_reset()`，让 SHM bridge 由 Linux 自己建立
+> - **基线 / Base**：`v7.2-rc2` 时期的树（`drivers/media/platform/qcom/iris/*` 与 IRIS 设备树节点）
+> - **序列 / Order**：见同目录 [`series`](series)（单条补丁）
+> - **上游状态**：未投稿上游
+> - **是否用于当前发布内核**：❌ **否**（IRIS 路线已放弃，见下方 2026-09-13 更正块与
+>   [`docs/video-decode.md`](../../docs/video-decode.md)）；当前发布内核走 **EL1 + venus**
+> - **验证**：应用后固件认证与解复位**均通过**，失败点推进到 `qcom_scm_mem_protect_video_var`（`-5`）
+>   —— 即本补丁只解决了这条路线的一半
+> - **回滚**：本序列不进入发布内核；删除构建目录即可，目标机不受影响
+
+
 > ## ⚠️ 2026-09-13 更正：**方向已变——本项目现在走 EL1 + venus，本目录的补丁不再使用**
 >
 > 实机结果（详见 [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913.md`](../../docs/releases/kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913.md)）：
