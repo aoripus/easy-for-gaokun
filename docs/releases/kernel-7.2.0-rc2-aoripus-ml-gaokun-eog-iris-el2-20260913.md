@@ -15,14 +15,25 @@
 | 音频 | 声卡 `SC8280XP-HUAWEI-GAOKUN3` 注册；`SpkrLeft/Right PA Volume = 17` |
 | 触屏 | `gpio174 : out low`，Himax 中断计数持续增长 |
 | remoteproc | slpi / adsp / cdsp 均为 `attached`：EL2 下不做复位，接管引导固件已启动的实例 |
-| 视频硬解 | **不可用**（经逐寄存器验证为 EL2 下的不可修复项，见下节） |
+| 视频硬解 | **尚未打通**（此前"EL2 下不可修复"的判断已被推翻，见下节） |
 
 本机是标准 UEFI 平台：有固件设置界面、可从 USB 启动、ESP 是普通 FAT32 分区。安装时保留原
 默认条目即可；即使引导项写错，也能用 U 盘启动挂载 ESP 修复。
 
-## 视频硬解：结论为「EL2 下不可用，且不可修复」
+## 视频硬解：尚未打通（附结论更正）
 
-**本机是标准 UEFI 平台**，安装与回滚都很简单；**但视频硬解这一项买不到，原因是内核运行在 EL2。**
+> ### ⚠️ 更正（2026-09-13 第三轮）
+>
+> 本节此前写的是"**EL2 下不可用，且不可修复**"。该结论**已被推翻**。
+>
+> Steev Klimaszewski 在 **Lenovo ThinkPad X13s（同为 SC8280XP）** 上实测 iris 通过：
+> `v4l2-compliance` 48/48、真实播放正常，**且明确包括 EL2**（"In el2, the device seems to be
+> /dev/video33 … if I let the video play, it plays just fine"）。
+>
+> 同为该 SoC、同为 EL2，**X13s 能跑而本机不能** —— 这说明问题是**设备特有的，不是架构性的**。
+> 下面保留原始证据链（逐寄存器验证部分仍然完全有效），但结论改为"**本机尚未打通、原因待查**"。
+
+**本机是标准 UEFI 平台**，安装与回滚都很简单。
 
 固件启动要跨过四道关卡，本产物停在第四道：
 
@@ -77,7 +88,20 @@ DSP（adsp / cdsp / slpi）之所以没事，是因为它们**在开机时就已
 - **固件不是原因**：换用 X13s 的 `qcvss8280.mbn`（2,035,812 B，与华为那份 2,035,748 B 仅差
   64 字节）后结果逐字节相同。
 
-**结论：这一项在本机上买不到。** 视频播放请走软解路径。
+### 结论（更正后）
+
+逐寄存器证据表明：**供电、时钟、复位、固件四项全部正常，而视频核从不执行。**
+TrustZone 也**确实活着**（不存在的 PAS ID 一律返回 `-22`），并**声称**支持视频核
+（`pas_supported(9)=yes`；镜像已加载时 `pas_auth_and_reset(9)=0`）。
+
+与已知可用设备（X13s）最明确的差异是：**`qcom_scm_mem_protect_video_var` 被本机 TrustZone
+以 `-EIO` 拒绝** —— 在 X13s 上这一步必须成功，否则上游 iris 会在此处直接
+`pas_shutdown()` 并中止 probe。此外本机固件经上游 master 的判定算法确认为 **Gen1**
+（`QC_IMAGE_VERSION_STRING=video-firmware.1.1-…`），因此"用错 HFI 代次"已被排除。
+
+**当前状态：本机尚未打通硬解；原因待查，但已确认不是 EL2 的架构限制。**
+在打通之前，视频播放请走软解路径。可复现的探针工具见
+[`tools/pas-probe/`](../../tools/pas-probe/README.md)。
 
 实验记录与复现步骤见 [`patches/iris-el2/README.md`](../../patches/iris-el2/README.md)。
 
