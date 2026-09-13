@@ -37,13 +37,34 @@
 
 ### 已知问题
 
-- 视频硬解在 EL2 下不可用，失败点已定位到 `iris_vpu_boot_firmware` 返回 `-62`（ETIME）：
-  `CTRL_STATUS` 轮询 1000 次恒为 `0`、`WRAPPER_TZ_CPU_STATUS` 的 WFI 位为 `0`（核心不在
-  运行态）、`WRAPPER_CORE_POWER_STATUS=0x2`（wrapper 有电）。换用 X13s 固件结果相同，
-  固件内存地址也在 `dma_mask` 范围内，两个变量均已排除。与上游 EL2 补丁 0018 关于
-  "远程处理器不会真正脱离复位"的描述一致。详见 `patches/iris-el2/README.md`。
+- **视频硬解在 EL2 下确定不可用，且不是软件可修复的问题。** 失败表现为
+  `iris_vpu_boot_firmware()` 返回 `-62`（ETIME）：`CTRL_STATUS` 轮询 1000 次恒为 `0`。
+  2026-09-13 做了第二轮的**逐寄存器**验证，把"缺陷在驱动/设备树/固件选择"的可能性全部排除：
+
+  | 变量 | 实测 | 结论 |
+  |---|---|---|
+  | 供电 | `mvs0c_gdsc` / `mvs0_gdsc` 均 `PWR_STATE=1`、`SW_COLLAPSE=0` | 正常 |
+  | 时钟 | `video_cc_mvs0c_clk` 840 MHz、`video_cc_mvs0_clk` 560 MHz，`hardware_enable=Y` | 正常 |
+  | 复位 | 两个 CBCR 的 ARES 位均为 `0`；`GCC_VIDEO_AXI0_CLK_ARES` 亦为 `0` | 正常 |
+  | 固件 | 保留区 `0x86700000` 读出合法镜像头 | 正常（由 Linux 的 `qcom_mdt_load` 写入） |
+  | 核心是否执行 | `CTRL_STATUS=0`、`WRAPPER_TZ_CPU_STATUS` 的 WFI 位 `=0`，持续 90 s | **不执行** |
+
+  在 90 秒上电窗口内穷举了全部可写路径（`CTRL_INIT`、NOC LPI、TZ 时钟 halt、桥复位、
+  TZ FIFO 复位、两次 GDSC 掉电/上电、`CPU_CS_X2RPMH` 的 `MSK_CORE_POWER_ON`——已回读确认
+  可写），**`CTRL_STATUS` 始终为 0**。
+
+  根因是上游 EL2 补丁集作者已明确记录的缺陷：*"It's possible to authenticate and start new
+  firmware, but the remoteproc is never actually brought out of reset... all the PAS related
+  calls still succeed"* —— 所有 PAS 调用都返回成功，但子系统永不真正脱离复位。DSP 靠
+  `qcom,broken-reset` 跳过复位、attach 开机时已运行的实例绕过；**视频核没有 attach 可言，
+  必须由 Linux 亲自启动**，因此无从绕过。
+
+  设备树侧已无改进空间：本项目的 iris 节点与上游 v7 系列（2026-05）**逐属性一致**
+  （含 `iommus = <&apps_smmu 0x2a00 0x400>`），而该系列本身只含 DT 与 binding、不含驱动改动。
+  详见 `patches/iris-el2/README.md`。
 - 实验 iris 驱动时需先 `blacklist qcom_iris`、系统起来后再手动 `modprobe`：开机阶段的
-  反复 probe 超时曾把显示子系统探针拖到 `-110` 并黑屏。
+  反复 probe 超时曾把显示子系统探针拖到 `-110` 并黑屏。**既然硬解结论已定，建议把这条
+  blacklist 长期保留**，避免每次开机都白跑一轮探针并牵连 MDSS。
 
 ## [0.1.0] - 2026-09-13
 
