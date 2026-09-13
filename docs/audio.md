@@ -442,6 +442,7 @@ histen_config_GaoKunGen3.CopyList = 10, System32\HWAudioDriver
   > — [CS35L56 内核文档](https://origin.kernel.org/doc/html/v6.15/sound/codecs/cs35l56.html)
 
 > ### 一处必要的诚实限定
+>
 > 社区文档**没有**说"缺保护会引入失真"。相反，TI 指出是**廉价的 limiter 替代方案**才引入 artifact；KLIPPEL 类的 smart amp 算法**降低**谐波 / 互调失真。因此准确表述是：
 >
 > **缺少调音 ⇒ 保守、偏小、低频缺失、动态余量被放弃；缺少保护 ⇒ 大音量下有热 / 冲程损坏风险。**
