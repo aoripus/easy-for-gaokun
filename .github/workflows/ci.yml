@@ -1,0 +1,265 @@
+# ============================================================================
+# easy-for-gaokun — CI（静态检查）
+#
+# ★ 本工作流**不接触目标设备**。GitHub 托管 runner 上没有 GK-W76 可跑，
+#   所以这里只做静态检查：格式、语法、仓库卫生、补丁元数据。
+#   一切需要实机的验证（venus 硬解、触屏 IRQ、BLS 条目、音频通路……）
+#   都在真机上人工执行，证据写入 docs/ 与 Release 说明。
+#
+# 每个 job 与本地 `make check` 的目标一一对应，名字完全相同：
+#     make lint-md / lint-sh / lint-py / lint-yaml / hygiene / patches
+# 即：本地 `make check` 把下面 6 个 job 的内容串一遍；CI 只是把它搬上 runner。
+#
+# 说明：各 job 直接内联命令（而不是 `make <target>`），
+#       是为了让 CI 不依赖 Makefile 的可用性；命令内容与 Makefile 目标保持一致。
+# ============================================================================
+
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+# 同一分支/PR 上只保留最新一次运行
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # make lint-md —— Markdown 风格（规则来自仓库根目录的 .markdownlint-cli2.yaml）
+  # --------------------------------------------------------------------------
+  lint-md:
+    name: lint-md（Markdown）
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: markdownlint-cli2
+        run: npx --yes markdownlint-cli2 "**/*.md"
+
+  # --------------------------------------------------------------------------
+  # make lint-sh —— shell 静态检查 + 语法检查
+  # --------------------------------------------------------------------------
+  lint-sh:
+    name: lint-sh（shellcheck + bash -n）
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 安装 shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      # -x：跟随 source 指令，把被引用的文件（如 scripts/lib/common.sh）一并检查
+      - name: shellcheck -x
+        run: |
+          find scripts tools -type f -name '*.sh' -print0 | xargs -0 -r shellcheck -x
+
+      - name: bash -n（逐文件语法检查）
+        run: |
+          find scripts tools -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+
+  # --------------------------------------------------------------------------
+  # make lint-py —— Python 静态检查 + 字节码编译
+  # --------------------------------------------------------------------------
+  lint-py:
+    name: lint-py（ruff + compileall）
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 安装 Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - name: 安装 ruff
+        run: python -m pip install ruff
+
+      # 规则与目标版本来自仓库根目录的 pyproject.toml
+      - name: ruff check
+        run: ruff check tools/
+
+      - name: 字节码编译（语法兜底）
+        run: python -m compileall -q tools/
+
+  # --------------------------------------------------------------------------
+  # make lint-yaml —— YAML 风格 + GitHub Actions 语法
+  # --------------------------------------------------------------------------
+  lint-yaml:
+    name: lint-yaml（yamllint + actionlint）
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      - name: 安装 Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - name: 安装 yamllint
+        run: python -m pip install yamllint
+
+      - name: yamllint
+        run: yamllint -c .yamllint.yml .
+
+      # actionlint 用**官方容器镜像**：既避免在 CI 里 `bash <(curl ...)`，
+      # 也避免把版本号写死在仓库里（tag 由上游维护）。
+      # 本地/离线环境由 .pre-commit-config.yaml 里的 actionlint 钩子覆盖。
+      - name: actionlint（官方镜像）
+        run: |
+          if command -v docker >/dev/null 2>&1; then
+            docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest -color
+          else
+            echo "::warning::docker 不可用，跳过 actionlint；本地由 pre-commit 钩子覆盖"
+          fi
+
+  # --------------------------------------------------------------------------
+  # make hygiene —— 仓库卫生（行尾 / 红线文件 / 体积 / 末尾换行）+ 机密扫描
+  # --------------------------------------------------------------------------
+  hygiene:
+    name: hygiene（仓库卫生 + 机密扫描）
+    runs-on: ubuntu-24.04
+    steps:
+      # gitleaks 需要完整历史才能对 push / PR 计算提交区间
+      - name: 检出代码（完整历史）
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # ① 全仓库禁止 CRLF（.gitattributes 声明 LF；CRLF 会让脚本在目标机上无法执行）
+      - name: ① 禁止 CRLF 行尾
+        run: |
+          set -euo pipefail
+          crlf=$(git grep -Il $'\r' || true)
+          if [ -n "$crlf" ]; then
+            echo "::error::以下文件含 CRLF 行尾（仓库要求 LF，见 .gitattributes 与 CONTRIBUTING）"
+            printf '%s\n' "$crlf"
+            exit 1
+          fi
+          echo "OK：全仓库无 CRLF"
+
+      # ② 红线文件绝不允许入库（.gitignore 只能挡住本地，挡不住误提交）
+      - name: ② 红线文件不得被跟踪
+        run: |
+          set -euo pipefail
+          bad=$(git ls-files | grep -E '(^|/)(Drv|Recovery)/|(^|/)AGENTS\.md$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::以下文件属于 .gitignore 红线（专有驱动转储 / 恢复镜像 / 内部台账），绝不能入库"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+          echo "OK：Drv/、Recovery/、AGENTS.md 均未被跟踪"
+
+      # ③ 单文件超过 2 MiB 即失败（仓库只放文本、补丁与文档）
+      - name: ③ 单文件不得超过 2 MiB
+        run: |
+          set -euo pipefail
+          limit=$((2 * 1024 * 1024))
+          fail=0
+          while IFS= read -r -d '' f; do
+            size=$(stat -c '%s' -- "$f")
+            if [ "$size" -gt "$limit" ]; then
+              echo "::error file=$f::$f 为 $size 字节，超过 2 MiB 上限（$limit 字节）"
+              fail=1
+            fi
+          done < <(git ls-files -z)
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK：没有被跟踪的文件超过 2 MiB"
+
+      # ④ 每个被跟踪的文本文件都要以换行结尾（.gitattributes 标为 binary 的除外）
+      - name: ④ 每个跟踪文件以换行结尾
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            [ -s "$f" ] || continue                      # 空文件天然满足
+            attr=$(git check-attr binary -- "$f")        # ① .gitattributes 声明为二进制的跳过
+            case "$attr" in
+              *': set'*) continue ;;
+            esac
+            if head -c 8192 -- "$f" | od -An -tx1 -v | grep -qw '00'; then
+              continue                                   # ② 内容含 NUL 字节，同样视为二进制
+            fi
+            last=$(tail -c 1 -- "$f" | od -An -tx1 | tr -d ' \n')
+            if [ "$last" != "0a" ]; then
+              echo "::error file=$f::$f 末尾缺少换行（最后一个字节是 0x$last）"
+              fail=1
+            fi
+          done < <(git ls-files -z)
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK：全部跟踪文件以换行结尾"
+
+      # ⑤ 机密扫描。公开仓库用官方 action 即可（无需 GITLEAKS_LICENSE）
+      - name: ⑤ 机密扫描（gitleaks）
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --------------------------------------------------------------------------
+  # make patches —— 补丁序列元数据
+  # --------------------------------------------------------------------------
+  patches:
+    name: patches（补丁序列元数据）
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+
+      # 校验脚本由补丁治理工作落地；未落地时跳过，不让 CI 变红
+      - name: 执行 scripts/check-patches.sh（若已就位）
+        run: |
+          set -euo pipefail
+          if [ -x scripts/check-patches.sh ]; then
+            ./scripts/check-patches.sh
+          elif [ -f scripts/check-patches.sh ]; then
+            echo "::notice::scripts/check-patches.sh 没有执行位，改用 bash 调用"
+            bash scripts/check-patches.sh
+          else
+            echo "::notice::scripts/check-patches.sh 尚未落地，跳过；本地由 make patches 覆盖"
+          fi
+
+      # series 是 quilt 约定的清单：每行一个补丁文件名（可带 -pN），# 为注释
+      - name: 断言 patches/*/series 列出的补丁文件都存在
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          series_list=(patches/*/series)
+          if [ ${#series_list[@]} -eq 0 ]; then
+            echo "::notice::未发现 patches/*/series（补丁元数据尚未落地）"
+            exit 0
+          fi
+          fail=0
+          for series in "${series_list[@]}"; do
+            dir=$(dirname "$series")
+            n=0
+            while IFS= read -r raw || [ -n "$raw" ]; do
+              line="${raw%%#*}"                    # 去掉注释（含行内注释）
+              read -r name _rest <<< "$line" || true
+              [ -n "${name:-}" ] || continue       # 空行
+              case "$name" in
+                -*) continue ;;                    # 形如 "-p1" 的选项行
+              esac
+              n=$((n + 1))
+              if [ ! -f "$dir/$name" ]; then
+                echo "::error file=$series::series 列出的补丁不存在：$dir/$name"
+                fail=1
+              fi
+            done < "$series"
+            echo "$series：列出 $n 个补丁"
+          done
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "OK：patches/*/series 与补丁文件一一对应"
