@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # MODE_LINE 等常量当前仅作说明用途，保留以便后续脚本统一引用
 #
 # 20-touchscreen.sh — 触屏诊断与修复（Himax HX83121A / GK-W76）
 #
