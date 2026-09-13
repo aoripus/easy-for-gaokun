@@ -12,8 +12,13 @@ config:
   MD034: false          # 允许裸 URL（引用实机输出与上游链接时很常见）
   MD036: false          # 允许用 **加粗** 当小节标题（实测记录习惯）
   MD041: false          # 允许文档以引用块/元信息开头
+  MD010:
+    code_blocks: false  # 代码块里会出现 Makefile、补丁与内核片段，制表符是内容而非缩进错误
   MD024:
     siblings_only: true # 同一父级下不允许重复标题，不同小节可以同名
+  MD060: false          # 表格管道风格：本仓库分隔行统一为紧凑写法 `|---|`，
+                        # 该规则的两个取值都要求重排（compact 要 `| --- |`，aligned 要按列补空格），
+                        # 全仓库涉及 1100+ 行、渲染结果完全相同，属无意义 churn，故显式关闭。
 
 globs:
   - "**/*.md"
@@ -23,3 +28,4 @@ ignores:
   - "Drv/**"
   - "Recovery/**"
   - "node_modules/**"
+  - "AGENTS.md"   # 本地工作台账，gitignored，不进仓库也不参与文档规范
