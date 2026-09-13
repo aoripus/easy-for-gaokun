@@ -22,6 +22,8 @@ TARBALL=$BASE/linux-$VER.tar.gz
 SRC=$BASE/linux
 OUT=$BASE/out-$VER
 P=$BASE/buildbot-patches
+EL2P=${GK_EL2_PATCH_DIR:-$BASE/el2-patches}
+EL2RB=$BASE/el2-rebased
 PREP=$BASE/gaokun-iris-dts-prep.py
 TOUCH_PATCH=${GK_TOUCH_PATCH:-$BASE/0001-touchscreen-gpio174.patch}
 LOG=$BASE/build-$VER.log
@@ -91,14 +93,35 @@ step "3. 关键文件检查"
 [ -f arch/arm64/configs/gaokun3_defconfig ] || die "补丁未应用成功：gaokun3_defconfig 不存在"
 ls -l arch/arm64/configs/gaokun3_defconfig arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts
 
+# EL2 系列发布于 2025-07，其中有 4 个补丁无法直接落在 v7.2-rc2 上：
+#   0006 是引入 enum rproc_auto_boot 的那个补丁，它的 xlnx 改动撞上上游新增的
+#        "if (fw_name) auto_boot = true" 代码块；
+#   0010 / 0016 依赖 0006 引入的枚举，属级联失败；
+#   0011 的 scm.h 片段撞上上游新增的 QCOM_SCM_VMID_CP_ADSP_SHARED。
+# 本仓库重写了这三处（0006、0006b、0011），在此覆盖 buildbot 原集中的同名文件，
+# 组装出可逐个干净应用的本地 EL2 补丁目录。
+step "3b. 组装 EL2 补丁目录（buildbot 原集 + 本仓库重写覆盖）"
+rm -rf "$EL2P"
+cp -a "$P/el2" "$EL2P"
+if [ -d "$EL2RB" ]; then
+  for f in "$EL2RB"/*.patch; do
+    [ -e "$f" ] || continue
+    cp -f "$f" "$EL2P/"
+    echo "  覆盖: $(basename "$f")"
+  done
+else
+  echo "!! 未找到 $EL2RB，将使用 buildbot 原集（预计会失败）"
+fi
+echo "EL2 补丁数: $(ls "$EL2P"/*.patch | wc -l)"
+
 # EL2 补丁组必须逐个应用。git apply 传多个文件是原子操作：
 # 只要有一个失败，整组都进不去，而其中的 tzmem / SCM SHM bridge /
 # qcom_q6v5_pas 补丁正是让 PAS 固件加载在 EL2 下可用的前提；
 # 缺失时表现为 adsp / cdsp / slpi / venus 全部 -22，视频与音频同时失效。
 step "4. EL2 补丁（逐个应用）"
-apply_group el2 $P/el2/*.patch
+apply_group el2 $EL2P/*.patch
 [ "$APPLY_BAD" -le 2 ] || die "EL2 补丁组失败 $APPLY_BAD 个，超出容忍范围，中止以免产出 PAS 不可用的内核"
-git add -A >/dev/null && git commit -qm "Apply EL2 patches (per-file, $(( $(ls $P/el2/*.patch | wc -l) - APPLY_BAD ))/$(ls $P/el2/*.patch | wc -l))" || true
+git add -A >/dev/null && git commit -qm "Apply EL2 patches (per-file, $(( $(ls $EL2P/*.patch | wc -l) - APPLY_BAD ))/$(ls $EL2P/*.patch | wc -l))" || true
 
 step "4b. EL2 补丁生效性检查"
 # 0011 引入 QCOM_SCM_VMID_SELF_OWNER（include/dt-bindings/firmware/qcom,scm.h）
@@ -109,10 +132,10 @@ grep -q 'qcom,broken-reset' arch/arm64/boot/dts/qcom/sc8280xp-el2.dtso \
   || die "sc8280xp-el2.dtso 缺少 qcom,broken-reset，EL2 补丁 0018 未生效"
 # 逐补丁回读：--check -R 成功说明该补丁的改动确实在工作区里
 VERIFY_BAD=0
-for f in $P/el2/*.patch; do
+for f in $EL2P/*.patch; do
   git apply --check -R "$f" >/dev/null 2>&1 || { echo "   !! 回读未通过: $(basename "$f")"; VERIFY_BAD=$((VERIFY_BAD+1)); }
 done
-echo "EL2 回读校验：未通过 $VERIFY_BAD / $(ls $P/el2/*.patch | wc -l)（补丁间存在重叠改动时允许少量偏差）"
+echo "EL2 回读校验：未通过 $VERIFY_BAD / $(ls $EL2P/*.patch | wc -l)（补丁间存在重叠改动时允许少量偏差）"
 [ "$VERIFY_BAD" -le 4 ] || die "EL2 补丁回读校验失败 $VERIFY_BAD 个，超出容忍范围，中止"
 
 step "5. 前置上游 IRIS 设备树节点"
