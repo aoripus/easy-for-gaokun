@@ -230,7 +230,7 @@ def cmd_resources(hv, ids):
 def cmd_connections(hv):
     """扫描全部 ACPI 设备的连接描述符 —— 用已知设备反推 Class/Type 语义，并据此判定目标设备的总线。"""
     rows = []
-    for hid, inst, node in iter_acpi(hv):
+    for hid, _inst, node in iter_acpi(hv):
         logconf = hv.find("LogConf", node)
         if logconf is None:
             continue
@@ -266,8 +266,6 @@ def cmd_connections(hv):
 def cmd_find(hv, needles):
     """在 hive 中做 ASCII/UTF-16 关键字定位（用于确认某个硬件 ID 是否真的枚举过）。"""
     for needle in needles:
-        n_ascii = needle.encode("ascii", "ignore")
-        n_utf16 = needle.encode("utf-16-le")
         found = []
         for hid, inst, node in iter_acpi(hv):
             if needle.lower() in (hid + "\\" + inst).lower():
