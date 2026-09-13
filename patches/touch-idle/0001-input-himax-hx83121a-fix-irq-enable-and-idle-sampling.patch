@@ -1,0 +1,844 @@
+From: easy-for-gaokun <noreply@github.com>
+Subject: [PATCH] input: himax-hx83121a: fix asymmetric IRQ masking, add idle sampling
+
+Two things in one patch because the second became measurable only after the
+first was fixed.
+
+1. himax_lock() masks the touch interrupt (quiesce_irq: disable_irq_nosync +
+   synchronize_irq) but himax_unlock() never re-enabled it, so *any* sysfs
+   access left the touch interrupt masked until a full chip re-init.  Remember
+   the enable state across the critical section and restore it, guarded by
+   panel_enabled / !idle_active / !shutting_down.
+
+2. Opt-in idle policy: after idle_enter_frames contact-free frames (default
+   7200 = about 60 s at the IC's ~120 Hz frame rate) mask the interrupt and let
+   exactly one frame through every idle_poll_ms (default 30 ms); the interrupt
+   path runs the normal algorithm on that frame and either resumes interrupt
+   mode on a reported contact or masks again.  Measured on HUAWEI MateBook E Go
+   2022 (GK-W76): 120.0 Hz -> 22.9 Hz touch IRQ and 2.00% -> 0.50% of one CPU
+   core while idle, with no AFE command and no chip re-initialisation.
+
+Also adds the diagnostic-only sysfs nodes used to establish the above: frame
+(read one frame without interrupts, return checksums), irq_gate, regs (raw AHB,
+gated by allow_raw_ahb), idle_state, and AFE mailbox read-back logging.
+
+The reset of the idle counter is deliberately driven by a *reported* contact
+(algo->touch_active) and not by a raw stable-track count: with the latter the
+60 s threshold was never reached (measured: 7200 frames did not elapse in
+111 s), because single noisy frames kept restarting the timer.
+
+Base: drivers/input/touchscreen/himax-spi-core.c as shipped in
+kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1/r2 (community HX83121A driver
+plus the AFE transport patch).
+
+Signed-off-by: easy-for-gaokun <noreply@github.com>
+---
+--- a/drivers/input/touchscreen/himax-spi-core.c
++++ b/drivers/input/touchscreen/himax-spi-core.c
+@@ -21,16 +21,56 @@
+ #include <linux/module.h>
+ 
+ static bool disable_pressure = true;
+-static uint idle_enter_frames;
++/*
++ * 7200 frames at the IC's ~120 Hz frame rate is 60 s without a contact.  The
++ * idle policy costs a little first-touch latency (~one idle_poll_ms period),
++ * so it must not engage during the pauses of normal use; 2 s was visibly
++ * "not following the finger" and 60 s is far beyond any interaction gap.
++ */
++static uint idle_enter_frames = 7200;
+ module_param(idle_enter_frames, uint, 0644);
+ MODULE_PARM_DESC(idle_enter_frames,
+-	"Enter AFE low-power idle after this many consecutive frames without a contact (0 = off)");
++	"Enter low-power idle after this many consecutive frames without a contact"
++	" (0 = off, default 7200 = about 60 s at 120 Hz)");
++
++/*
++ * Diagnostic knobs.  They exist so the AFE transport can be characterised on
++ * real hardware without rebuilding the kernel for every experiment; none of
++ * them is meant to be enabled on a released kernel.
++ */
++static bool allow_any_afe_cmd;
++module_param(allow_any_afe_cmd, bool, 0644);
++MODULE_PARM_DESC(allow_any_afe_cmd,
++	"Diagnostic: let afe_cmd accept any command id instead of the known list");
++
++static bool afe_log_response = true;
++module_param(afe_log_response, bool, 0644);
++MODULE_PARM_DESC(afe_log_response, "Log the 16-byte AFE mailbox read-back");
++
++static bool afe_skip_trigger;
++module_param(afe_skip_trigger, bool, 0644);
++MODULE_PARM_DESC(afe_skip_trigger, "Diagnostic: write the command body without the trigger word");
++
++static bool afe_skip_readback;
++module_param(afe_skip_readback, bool, 0644);
++MODULE_PARM_DESC(afe_skip_readback, "Diagnostic: do not read the AFE mailbox back");
++
++static bool allow_raw_ahb;
++module_param(allow_raw_ahb, bool, 0644);
++MODULE_PARM_DESC(allow_raw_ahb,
++	"Diagnostic: expose the raw AHB read/write attribute (dangerous, off by default)");
++
++static uint idle_poll_ms = 30;
++module_param(idle_poll_ms, uint, 0644);
++MODULE_PARM_DESC(idle_poll_ms,
++	"Poll period in ms while the AFE idle mode is active (only used with idle_enter_frames)");
+ 
+ module_param(disable_pressure, bool, 0444);
+ MODULE_PARM_DESC(disable_pressure, "Disable ABS_MT_TOUCH_MAJOR and ABS_MT_PRESSURE axes (default: true)");
+ #include <linux/spi/spi.h>
+ #include <linux/math.h>
+ #include <linux/math64.h>
++#include <linux/sysfs.h>
+ #include <linux/workqueue.h>
+ 
+ #include <drm/drm_panel.h>
+@@ -93,6 +133,38 @@
+ #define HIMAX_HX83121A_AFE_CMD_ENTER_IDLE		0x0a
+ #define HIMAX_HX83121A_AFE_CMD_FORCE_SCAN_RATE		0x0e
+ #define HIMAX_HX83121A_AFE_SCAN_RATE_120HZ		0x00
++/*
++ * The queue also has a host write pointer just below the slots.  The Windows
++ * reimplementation zeroes all five slots and this pointer once after chip
++ * init; without that the firmware may interpret stale slot contents.  This
++ * driver historically did neither, and an experiment on real hardware showed
++ * that *any* mailbox command (0x01 calibration, 0x0a enter-idle, 0x0e force
++ * scan rate) permanently stops the frame stream until a full re-init -- which
++ * is exactly what an uninitialised queue would look like.  Do what Windows
++ * does before drawing conclusions about individual commands.
++ */
++#define HIMAX_HX83121A_AFE_CMD_QUEUE_SZ \
++	(HIMAX_HX83121A_AFE_CMD_SLOT_COUNT * HIMAX_HX83121A_AFE_CMD_SLOT_STRIDE)
++#define HIMAX_HX83121A_AFE_CMD_WRITE_PTR		0x1000753c
++
++/*
++ * Firmware "IDLE mode" flag.  Address and both magic values are byte-identical
++ * in two independent sources: the GPL-2.0 Android vendor driver
++ * (google-modules/touch/himax_touch, himax_mcu_idle_mode()) and the Windows
++ * clean-room reverse engineering (awarson2233/EGoTouchRev, HimaxRegisters).
++ * fp_idle_mode(1) = disable FW idle, fp_idle_mode(0) = enable FW idle.
++ */
++#define HIMAX_HX83121A_DSRAM_ADDR_FW_MODE_STATUS	0x10007088
++#define HIMAX_HX83121A_DSRAM_DATA_IDLE_DISABLE		0x17
++#define HIMAX_HX83121A_DSRAM_DATA_IDLE_ENABLE		0x1f
++/* "AP is back" handshake; the Linux port replays it as 0 on resume. */
++#define HIMAX_HX83121A_DSRAM_ADDR_AP_NOTIFY_FW_SUSPEND	0x10007fd0
++
++/* Lower bound for idle_poll_ms: below this the poll costs more than the IRQ. */
++#define HIMAX_AFE_IDLE_POLL_MIN_MS			5U
++
++/* Byte offset into the SPI event buffer where the raw capacitance grid starts. */
++#define OFST						4
+ 
+ /* dsram flag data */
+ #define HIMAX_DSRAM_DATA_FW_RELOAD_DONE			0x000072c0
+@@ -145,9 +217,11 @@
+ 	spinlock_t irq_lock;
+ 	struct mutex op_lock;
+ 	bool irq_enabled;
++	bool irq_resume;
+ 	u8 afe_command_slot;
+ 	u32 idle_frames;
+-	bool afe_idle;
++	bool idle_active;
++	bool idle_sampling;
+ 	bool panel_prepared;
+ 	bool panel_enabled;
+ 	bool shutting_down;
+@@ -158,10 +232,12 @@
+ 	struct touchscreen_properties props;
+ 	struct drm_panel_follower panel_follower;
+ 	struct delayed_work panel_reinit_work;
++	struct delayed_work idle_probe_work;
+ 	struct hx_algo *algo;
+ };
+ 
+ static void himax_report_tracked_state(struct himax_ts_data *ts, bool report_on);
++static int hx83121a_gaokun_read_event_stack(struct himax_ts_data *ts);
+ static int himax_disable_fw_reload(struct himax_ts_data *ts);
+ static int himax_mcu_power_on_init(struct himax_ts_data *ts);
+ static int himax_mcu_check_crc(struct himax_ts_data *ts, u32 start_addr,
+@@ -468,27 +544,83 @@
+ 	ret = himax_mcu_register_write(ts, addr, packet, sizeof(packet));
+ 	if (ret)
+ 		return ret;
+-	ret = himax_mcu_register_write(ts, addr, trigger, sizeof(trigger));
+-	if (ret)
++	if (!afe_skip_trigger) {
++		ret = himax_mcu_register_write(ts, addr, trigger, sizeof(trigger));
++		if (ret)
++			return ret;
++	}
++	if (!afe_skip_readback) {
++		ret = himax_mcu_register_read(ts, addr, response, sizeof(response));
++		if (ret)
++			return ret;
++		if (afe_log_response)
++			dev_info(ts->dev, "AFE 0x%02x/0x%02x reply %*ph\n",
++				 command, value, (int)sizeof(response), response);
++	}
++
++	ts->afe_command_slot++;
++
++	return 0;
++}
++
++/*
++ * Zero the five command slots and the host write pointer, exactly like the
++ * Windows runtime does once after chip init.
++ */
++static int himax_hx83121a_afe_reset_queue(struct himax_ts_data *ts)
++{
++	u8 zero[HIMAX_HX83121A_AFE_CMD_QUEUE_SZ] = { 0 };
++	u8 ptr[HIMAX_REG_SZ] = { 0 };
++	int ret;
++
++	ret = himax_mcu_register_write(ts, HIMAX_HX83121A_AFE_CMD_SLOT_BASE,
++				       zero, sizeof(zero));
++	if (ret) {
++		dev_err(ts->dev, "AFE queue clear failed\n");
+ 		return ret;
+-	ret = himax_mcu_register_read(ts, addr, response, sizeof(response));
+-	if (ret)
++	}
++
++	ret = himax_mcu_register_write(ts, HIMAX_HX83121A_AFE_CMD_WRITE_PTR,
++				       ptr, sizeof(ptr));
++	if (ret) {
++		dev_err(ts->dev, "AFE write pointer reset failed\n");
+ 		return ret;
++	}
+ 
+-	ts->afe_command_slot++;
++	ts->afe_command_slot = 0;
+ 
+ 	return 0;
+ }
+ 
+ static void himax_lock(struct himax_ts_data *ts)
+ {
++	unsigned long flags;
++
++	/*
++	 * Remember whether the interrupt was live before masking it: quiesce_irq()
++	 * only disables, and the original unlock() never re-enabled, so *every*
++	 * sysfs access used to leave the touch interrupt masked until the next
++	 * full re-init.  That silently invalidated a whole round of idle-mode
++	 * measurements (any "AFE command stops the stream" reading was really
++	 * "writing a sysfs attribute stopped the host from servicing the IRQ").
++	 */
++	spin_lock_irqsave(&ts->irq_lock, flags);
++	ts->irq_resume = ts->irq_enabled;
++	spin_unlock_irqrestore(&ts->irq_lock, flags);
++
+ 	himax_quiesce_irq(ts);
+ 	mutex_lock(&ts->op_lock);
+ }
+ 
+ static void himax_unlock(struct himax_ts_data *ts)
+ {
++	bool resume = ts->irq_resume && ts->panel_enabled &&
++		      !ts->idle_active && !ts->shutting_down;
++
+ 	mutex_unlock(&ts->op_lock);
++	if (resume)
++		himax_int_enable(ts, true);
++	ts->irq_resume = false;
+ }
+ 
+ static void himax_mcu_ic_reset(struct himax_ts_data *ts, bool int_off)
+@@ -829,6 +961,9 @@
+ 		return;
+ 	}
+ 
++	ts->idle_active = false;
++	ts->idle_sampling = false;
++
+ 	ret = himax_hw_reinit_retry(ts, false,
+ 				    HIMAX_PANEL_REINIT_RETRIES,
+ 				    HIMAX_PANEL_REINIT_DELAY_MS,
+@@ -843,6 +978,8 @@
+ 	struct himax_ts_data *ts = container_of(follower, struct himax_ts_data,
+ 						panel_follower);
+ 
++	cancel_delayed_work_sync(&ts->idle_probe_work);
++
+ 	himax_lock(ts);
+ 	if (ts->shutting_down) {
+ 		himax_unlock(ts);
+@@ -850,6 +987,8 @@
+ 	}
+ 
+ 	ts->panel_enabled = true;
++	ts->idle_active = false;
++	ts->idle_sampling = false;
+ 	himax_unlock(ts);
+ 
+ 	mod_delayed_work(system_wq, &ts->panel_reinit_work,
+@@ -863,9 +1002,12 @@
+ 						panel_follower);
+ 
+ 	cancel_delayed_work_sync(&ts->panel_reinit_work);
++	cancel_delayed_work_sync(&ts->idle_probe_work);
+ 
+ 	himax_lock(ts);
+ 	ts->panel_enabled = false;
++	ts->idle_active = false;
++	ts->idle_sampling = false;
+ 	if (ts->panel_prepared)
+ 		himax_power_down(ts);
+ 	himax_unlock(ts);
+@@ -879,10 +1021,13 @@
+ 						panel_follower);
+ 
+ 	cancel_delayed_work_sync(&ts->panel_reinit_work);
++	cancel_delayed_work_sync(&ts->idle_probe_work);
+ 
+ 	himax_lock(ts);
+ 	ts->panel_enabled = false;
+ 	ts->panel_prepared = false;
++	ts->idle_active = false;
++	ts->idle_sampling = false;
+ 	himax_power_down(ts);
+ 	himax_unlock(ts);
+ 
+@@ -905,6 +1050,7 @@
+ 		return count;
+ 
+ 	cancel_delayed_work_sync(&ts->panel_reinit_work);
++	cancel_delayed_work_sync(&ts->idle_probe_work);
+ 
+ 	himax_lock(ts);
+ 	if (ts->shutting_down) {
+@@ -917,6 +1063,9 @@
+ 		goto out_unlock;
+ 	}
+ 
++	ts->idle_active = false;
++	ts->idle_sampling = false;
++
+ 	ret = himax_hw_reinit_retry(ts, false,
+ 				    HIMAX_PANEL_REINIT_RETRIES,
+ 				    HIMAX_PANEL_REINIT_DELAY_MS,
+@@ -933,7 +1082,7 @@
+  * Diagnostic escape hatch for the AFE command mailbox.  Write "<cmd> <val>" in
+  * hex, e.g. "0e 00" (force 120 Hz) or "0a 00" (enter low-power idle).  Only the
+  * command ids recovered so far are accepted, so a typo cannot poke an unknown
+- * firmware entry point.
++ * firmware entry point -- unless the diagnostic allow_any_afe_cmd is set.
+  */
+ static ssize_t afe_cmd_store(struct device *dev, struct device_attribute *attr,
+ 			     const char *buf, size_t count)
+@@ -945,14 +1094,17 @@
+ 	if (sscanf(buf, "%x %x", &command, &value) != 2)
+ 		return -EINVAL;
+ 
+-	switch (command) {
+-	case HIMAX_HX83121A_AFE_CMD_START_CALIBRATION:
+-	case HIMAX_HX83121A_AFE_CMD_ENTER_IDLE:
+-	case HIMAX_HX83121A_AFE_CMD_FORCE_SCAN_RATE:
+-		break;
+-	default:
+-		dev_warn(ts->dev, "refusing unknown AFE command 0x%02x", command);
+-		return -EINVAL;
++	if (!allow_any_afe_cmd) {
++		switch (command) {
++		case HIMAX_HX83121A_AFE_CMD_START_CALIBRATION:
++		case HIMAX_HX83121A_AFE_CMD_ENTER_IDLE:
++		case HIMAX_HX83121A_AFE_CMD_FORCE_SCAN_RATE:
++			break;
++		default:
++			dev_warn(ts->dev, "refusing unknown AFE command 0x%02x\n",
++				 command);
++			return -EINVAL;
++		}
+ 	}
+ 
+ 	himax_lock(ts);
+@@ -961,12 +1113,169 @@
+ 	if (ret)
+ 		return ret;
+ 
+-	dev_info(ts->dev, "AFE command 0x%02x/0x%02x sent", command, value);
++	dev_info(ts->dev, "AFE command 0x%02x/0x%02x sent\n", command, value);
++	return count;
++}
++
++/*
++ * One SPI frame read straight out of the firmware event stack, summarised as
++ * two checksums.  Reading it twice with a delay tells us whether the IC is
++ * still scanning after an AFE command: an idle IC that stopped scanning
++ * returns frozen data, a merely "quiet" one keeps producing new frames.
++ */
++static ssize_t frame_show(struct device *dev, struct device_attribute *attr,
++			  char *buf)
++{
++	struct himax_ts_data *ts = dev_get_drvdata(dev);
++	u32 sum = 0, grid = 0;
++	u16 *p;
++	int i, ret;
++
++	himax_lock(ts);
++	ret = himax_mcu_interface_on(ts);
++	if (!ret)
++		ret = hx83121a_gaokun_read_event_stack(ts);
++	himax_unlock(ts);
++	if (ret)
++		return ret;
++
++	for (i = 0; i < ts->event_buf_sz; i++)
++		sum += ts->event_buf[i];
++
++	p = (u16 *)(ts->event_buf + OFST);
++	for (i = 0; i < 16; i++)
++		grid += p[i];
++
++	return sysfs_emit(buf, "bytes_sum=%u grid16_sum=%u head=%*ph\n",
++			  sum, grid, 32, ts->event_buf);
++}
++
++/*
++ * Raw AHB access, for characterising firmware registers that no public source
++ * documents.  Gated by allow_raw_ahb and never enabled in a release build.
++ *   echo "r <addr> [len]"            > regs
++ *   echo "w <addr> <b0> <b1> ..."    > regs
++ */
++static ssize_t regs_store(struct device *dev, struct device_attribute *attr,
++			  const char *buf, size_t count)
++{
++	struct himax_ts_data *ts = dev_get_drvdata(dev);
++	unsigned int addr, len = HIMAX_REG_SZ;
++	u8 data[64];
++	const char *p = buf;
++	char op;
++	int i, ret;
++	int consumed = 0;
++
++	if (!allow_raw_ahb) {
++		dev_warn(ts->dev, "raw AHB access disabled (allow_raw_ahb=0)\n");
++		return -EPERM;
++	}
++
++	if (sscanf(p, " %c %x%n", &op, &addr, &consumed) != 2)
++		return -EINVAL;
++	p += consumed;
++
++	if (op == 'r') {
++		if (sscanf(p, " %x", &len) != 1)
++			len = HIMAX_REG_SZ;
++		if (!len || len > sizeof(data))
++			return -EINVAL;
++
++		himax_lock(ts);
++		ret = himax_mcu_register_read(ts, addr, data, len);
++		himax_unlock(ts);
++		if (ret)
++			return ret;
++
++		dev_info(ts->dev, "AHB R %08x (%u): %*ph\n", addr, len,
++			 (int)len, data);
++		return count;
++	}
++
++	if (op == 'w') {
++		unsigned int val;
++		int n = 0;
++
++		while (n < (int)sizeof(data) &&
++		       sscanf(p, " %x%n", &val, &i) == 1) {
++			data[n++] = val & 0xff;
++			p += i;
++		}
++		if (!n)
++			return -EINVAL;
++
++		himax_lock(ts);
++		ret = himax_mcu_register_write(ts, addr, data, n);
++		if (!ret)
++			ret = himax_mcu_register_read(ts, addr, data, n);
++		himax_unlock(ts);
++		if (ret)
++			return ret;
++
++		dev_info(ts->dev, "AHB W %08x (%d): %*ph\n", addr, n, n, data);
++		return count;
++	}
++
++	return -EINVAL;
++}
++
++/*
++ * Explicit interrupt gate for experiments: masking the interrupt must not stop
++ * the IC from scanning (the mask lives in the TLMM, not on the SPI link), which
++ * is exactly what a host-side idle policy needs -- frames stay readable while
++ * the host stops paying for one interrupt per frame.
++ */
++static ssize_t irq_gate_store(struct device *dev, struct device_attribute *attr,
++			      const char *buf, size_t count)
++{
++	struct himax_ts_data *ts = dev_get_drvdata(dev);
++	bool on;
++	int ret;
++
++	ret = kstrtobool(buf, &on);
++	if (ret)
++		return ret;
++
++	himax_lock(ts);
++	himax_int_enable(ts, !on);
++	ts->irq_resume = false;
++	himax_unlock(ts);
++
++	dev_info(ts->dev, "diagnostic: interrupt %s\n", on ? "masked" : "live");
+ 	return count;
+ }
+ 
++/*
++ * Read-only state of the idle policy; makes "how many contact-free frames have
++ * accumulated" observable instead of inferred from interrupt rates.
++ */
++static ssize_t idle_state_show(struct device *dev, struct device_attribute *attr,
++			       char *buf)
++{
++	struct himax_ts_data *ts = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "active=%d sampling=%d frames=%u threshold=%u poll_ms=%u\n",
++			  ts->idle_active, ts->idle_sampling, ts->idle_frames,
++			  idle_enter_frames, idle_poll_ms);
++}
++
+ static DEVICE_ATTR_WO(afe_cmd);
+ static DEVICE_ATTR_WO(inplace_reset);
++static DEVICE_ATTR_WO(regs);
++static DEVICE_ATTR_WO(irq_gate);
++static DEVICE_ATTR_RO(frame);
++static DEVICE_ATTR_RO(idle_state);
++
++static const struct attribute *himax_diag_attrs[] = {
++	&dev_attr_inplace_reset.attr,
++	&dev_attr_afe_cmd.attr,
++	&dev_attr_regs.attr,
++	&dev_attr_irq_gate.attr,
++	&dev_attr_frame.attr,
++	&dev_attr_idle_state.attr,
++	NULL,
++};
+ 
+ /* ---- sysfs: algo parameter group ---- */
+ 
+@@ -1218,60 +1527,150 @@
+ 	input_sync(ts->input_dev);
+ }
+ 
+-/* Byte offset into the SPI event buffer where the raw capacitance grid starts. */
+-#define OFST 4
++/*
++ * Run the touch algorithm over the frame currently sitting in ts->event_buf
++ * and report the result to the input layer.  The caller must hold op_lock and
++ * must have read a frame into ts->event_buf already.
++ *
++ * Shared between the interrupt thread and the idle poll so both see the same
++ * debounce state.
++ */
++static int himax_process_frame(struct himax_ts_data *ts)
++{
++	struct hx_algo *algo = ts->algo;
++	struct input_mt_pos pos[HIMAX_MAX_TOUCH];
++	int stable_cnt;
++	int cnt;
++	bool report_on = true;
++
++	hx_preprocess_frame(algo, (u16 *)(ts->event_buf + OFST));
++	hx_detect_macro_zones(algo);
++	hx_reject_palms(algo);
++	hx_detect_peaks(algo);
++	hx_expand_and_resolve(algo, pos, &cnt);
++	hx_track_contacts(algo, pos, cnt);
++	stable_cnt = hx_count_stable_tracks(algo);
++
++	if (stable_cnt > 0 && !algo->touch_active) {
++		algo->touch_start_frames++;
++		if (algo->touch_start_frames < algo->track_start_debounce)
++			report_on = false;
++		else
++			algo->touch_active = true;
++	} else if (stable_cnt == 0) {
++		algo->touch_start_frames = 0;
++		algo->touch_active = false;
++	}
++
++	/* 这里报告给系统的坐标数据可以通过 evtest 查看 */
++	himax_report_tracked_state(ts, report_on);
++
++	return stable_cnt;
++}
++
++static unsigned long himax_idle_period_jiffies(void)
++{
++	unsigned int ms = idle_poll_ms < HIMAX_AFE_IDLE_POLL_MIN_MS ?
++			  HIMAX_AFE_IDLE_POLL_MIN_MS : idle_poll_ms;
++
++	return msecs_to_jiffies(ms);
++}
+ 
+ /*
+- * Opt-in idle policy: after idle_enter_frames consecutive frames without a
+- * stable contact, ask the IC to enter low-power idle (AFE cmd 0x0a).  A new
+- * contact forces the 120 Hz scan rate back (AFE cmd 0x0e/0x00).  Disabled by
+- * default (idle_enter_frames = 0) until the IC-side effect is verified.
++ * Idle sampling.  Process context, so op_lock (and the interrupt quiesce inside
++ * it) may be taken.
++ *
++ * The frame is *not* read here on purpose: reading the event stack outside an
++ * interrupt has no relation to the IC's frame boundary, and the resulting torn
++ * frames look like contacts to the algorithm (measured: the policy oscillated
++ * mask -> false contact -> unmask every ~2 s).  Instead, let exactly one
++ * interrupt through and decide in the interrupt path, where the read is framed
++ * by the IC itself.
+  */
+-static void himax_afe_idle_policy(struct himax_ts_data *ts, int stable_cnt)
++static void himax_idle_probe_work(struct work_struct *work)
+ {
+-	int ret;
++	struct himax_ts_data *ts = container_of(to_delayed_work(work),
++						struct himax_ts_data,
++						idle_probe_work);
+ 
+-	if (!idle_enter_frames)
++	himax_lock(ts);
++	if (ts->shutting_down || !ts->panel_enabled || !ts->idle_active) {
++		ts->idle_active = false;
++		ts->idle_sampling = false;
++		himax_unlock(ts);
+ 		return;
++	}
+ 
+-	if (stable_cnt > 0) {
+-		ts->idle_frames = 0;
+-		if (ts->afe_idle) {
+-			ret = himax_hx83121a_afe_send_command(ts,
+-				HIMAX_HX83121A_AFE_CMD_FORCE_SCAN_RATE,
+-				HIMAX_HX83121A_AFE_SCAN_RATE_120HZ);
+-			if (!ret) {
+-				ts->afe_idle = false;
+-				dev_dbg(ts->dev, "AFE idle exit, 120 Hz restored");
+-			}
+-		}
++	ts->idle_sampling = true;
++	himax_int_enable(ts, true);
++	himax_unlock(ts);
++}
++
++/*
++ * Enter idle: mask the interrupt and let one frame through every
++ * idle_poll_ms.  Called from the threaded handler with op_lock already held,
++ * hence disable_irq_nosync() (via himax_int_enable) and no synchronize_irq().
++ */
++static void himax_idle_enter(struct himax_ts_data *ts)
++{
++	ts->idle_active = true;
++	ts->idle_sampling = false;
++	ts->idle_frames = 0;
++	himax_int_enable(ts, false);
++	schedule_delayed_work(&ts->idle_probe_work,
++			      himax_idle_period_jiffies());
++	dev_info(ts->dev, "idle: one frame every %ums after %u contact-free frames\n",
++		 idle_poll_ms, idle_enter_frames);
++}
++
++/*
++ * Opt-in idle policy, disabled by default (idle_enter_frames = 0).
++ *
++ * Measured on hardware (r3 investigation): masking the interrupt does *not*
++ * stop the IC from scanning, so frames stay live and a poll can see a coming
++ * touch; a plain enable_irq() then restores the interrupt stream with no storm
++ * and no chip re-initialisation.  Putting the IC itself to sleep (AFE cmd
++ * 0x0a) is possible and does stop the stream -- and 0x0e/0x00 starts it again
++ * -- but then no frame is available to poll, so a host-side wake cannot detect
++ * the touch that should end the idle state.  The policy therefore stays purely
++ * host side:
++ *
++ *   1. after N contact-free frames, mask the interrupt and poll one frame
++ *      every idle_poll_ms from a work item,
++ *   2. the IC keeps scanning, so the poll sees the first contact itself,
++ *   3. on contact, re-enable the interrupt and stop polling.
++ *
++ * Cost: first-touch latency ~= poll period (no re-init), idle CPU ~= the
++ * per-frame algorithm cost scaled by poll_rate/120Hz, and idle interrupt count
++ * exactly zero.  The IC's own scan power is not reduced.
++ */
++static void himax_idle_policy(struct himax_ts_data *ts, int stable_cnt)
++{
++	if (!idle_enter_frames || ts->idle_active || !ts->panel_enabled)
+ 		return;
+-	}
+ 
+-	if (ts->afe_idle)
++	/*
++	 * Reset on a *reported* contact only.  A single frame that momentarily
++	 * yields a stable track (noise) must not restart a 60 s timer, otherwise
++	 * the threshold is never reached on this panel: measured with a raw
++	 * stable_cnt>0 reset, 7200 frames never elapsed even after 111 s.
++	 */
++	if (stable_cnt > 0 && ts->algo->touch_active) {
++		ts->idle_frames = 0;
+ 		return;
++	}
+ 
+ 	if (++ts->idle_frames < idle_enter_frames)
+ 		return;
+ 
+-	ret = himax_hx83121a_afe_send_command(ts,
+-		HIMAX_HX83121A_AFE_CMD_ENTER_IDLE, 0);
+-	if (!ret) {
+-		ts->afe_idle = true;
+-		dev_info(ts->dev, "AFE enter idle after %u idle frames",
+-			 ts->idle_frames);
+-	}
++	himax_idle_enter(ts);
+ }
+ 
+ static irqreturn_t himax_ts_thread(int irq, void *data)
+ {
+ 	struct himax_ts_data *ts = data;
+-	u16 *ptr = (u16 *)(ts->event_buf + OFST);
+ 	struct hx_algo *algo = ts->algo;
+-	struct input_mt_pos pos[HIMAX_MAX_TOUCH];
+-	int cnt;
+ 	int stable_cnt;
+-	bool report_on = true;
+ 	irqreturn_t irq_ret = IRQ_HANDLED;
+ 
+ 	mutex_lock(&ts->op_lock);
+@@ -1287,18 +1686,22 @@
+ 		goto out_unlock;
+ 	}
+ 
+-	// dump_frame((void *)ptr - OFST, true);
++	stable_cnt = himax_process_frame(ts);
+ 
+-	hx_preprocess_frame(algo, ptr);
+-	/* dump_frame(algo); */
+-
+-	hx_detect_macro_zones(algo);
+-	hx_reject_palms(algo);
+-	hx_detect_peaks(algo);
+-	hx_expand_and_resolve(algo, pos, &cnt);
+-	hx_track_contacts(algo, pos, cnt);
+-	stable_cnt = hx_count_stable_tracks(algo);
+-	himax_afe_idle_policy(ts, stable_cnt);
++	if (ts->idle_sampling) {
++		ts->idle_sampling = false;
++		if (algo->touch_active) {
++			ts->idle_active = false;
++			dev_info(ts->dev, "idle exit: touch after %ums sampling\n",
++				 idle_poll_ms);
++		} else {
++			himax_int_enable(ts, false);
++			schedule_delayed_work(&ts->idle_probe_work,
++					      himax_idle_period_jiffies());
++		}
++	} else {
++		himax_idle_policy(ts, stable_cnt);
++	}
+ 
+ 	/* Not final results, touchscreen_report_pos will handle this (x-y swap, y invert) */
+ 	for (int i = 0; i < HIMAX_MAX_TOUCH; ++i) {
+@@ -1308,20 +1711,6 @@
+ 			algo->tracks[i].x, algo->tracks[i].y);
+ 	}
+ 
+-	if (stable_cnt > 0 && !algo->touch_active) {
+-		algo->touch_start_frames++;
+-		if (algo->touch_start_frames < algo->track_start_debounce)
+-			report_on = false;
+-		else
+-			algo->touch_active = true;
+-	} else if (stable_cnt == 0) {
+-		algo->touch_start_frames = 0;
+-		algo->touch_active = false;
+-	}
+-
+-	/* 这里报告给系统的坐标数据可以通过 evtest 查看 */
+-	himax_report_tracked_state(ts, report_on);
+-
+ out_unlock:
+ 	mutex_unlock(&ts->op_lock);
+ 	return irq_ret;
+@@ -1445,6 +1834,12 @@
+ 		return ret;
+ 	}
+ 
++	/* Same queue initialisation the Windows runtime performs after chip init. */
++	ret = himax_hx83121a_afe_reset_queue(ts);
++	if (ret < 0)
++		dev_warn(ts->dev, "%s: AFE command queue left uninitialised\n",
++			 __func__);
++
+ 	return 0;
+ }
+ 
+@@ -1552,6 +1947,7 @@
+ 	spin_lock_init(&ts->irq_lock);
+ 	mutex_init(&ts->op_lock);
+ 	INIT_DELAYED_WORK(&ts->panel_reinit_work, himax_panel_reinit_work);
++	INIT_DELAYED_WORK(&ts->idle_probe_work, himax_idle_probe_work);
+ 	dev_set_drvdata(&spi->dev, ts);
+ 	spi_set_drvdata(spi, ts);
+ 
+@@ -1570,32 +1966,23 @@
+ 		return ret;
+ 	}
+ 
+-	ret = device_create_file(ts->dev, &dev_attr_inplace_reset);
+-	if (ret) {
+-		dev_err(ts->dev, "failed to create inplace_reset sysfs attribute\n");
+-		return ret;
+-	}
+-
+-	ret = device_create_file(ts->dev, &dev_attr_afe_cmd);
++	ret = sysfs_create_files(&ts->dev->kobj, himax_diag_attrs);
+ 	if (ret) {
+-		dev_err(ts->dev, "failed to create afe_cmd sysfs attribute\n");
+-		device_remove_file(ts->dev, &dev_attr_inplace_reset);
++		dev_err(ts->dev, "failed to create diagnostic sysfs attributes\n");
+ 		return ret;
+ 	}
+ 
+ 	ret = devm_device_add_group(ts->dev, &hx_algo_attr_group);
+ 	if (ret) {
+ 		dev_err(ts->dev, "failed to create algo sysfs group\n");
+-		device_remove_file(ts->dev, &dev_attr_inplace_reset);
+-	device_remove_file(ts->dev, &dev_attr_afe_cmd);
++		sysfs_remove_files(&ts->dev->kobj, himax_diag_attrs);
+ 		return ret;
+ 	}
+ 
+ 	ts->panel_follower.funcs = &himax_panel_follower_funcs;
+ 	ret = devm_drm_panel_add_follower(ts->dev, &ts->panel_follower);
+ 	if (ret) {
+-		device_remove_file(ts->dev, &dev_attr_inplace_reset);
+-	device_remove_file(ts->dev, &dev_attr_afe_cmd);
++		sysfs_remove_files(&ts->dev->kobj, himax_diag_attrs);
+ 		return dev_err_probe(ts->dev, ret,
+ 				     "failed to register panel follower\n");
+ 	}
+@@ -1608,13 +1995,15 @@
+ 	struct himax_ts_data *ts = spi_get_drvdata(spi);
+ 
+ 	cancel_delayed_work_sync(&ts->panel_reinit_work);
++	cancel_delayed_work_sync(&ts->idle_probe_work);
+ 
+ 	himax_lock(ts);
+ 	ts->shutting_down = true;
+ 	ts->panel_enabled = false;
+ 	ts->panel_prepared = false;
+-	device_remove_file(ts->dev, &dev_attr_inplace_reset);
+-	device_remove_file(ts->dev, &dev_attr_afe_cmd);
++	ts->idle_active = false;
++	ts->idle_sampling = false;
++	sysfs_remove_files(&ts->dev->kobj, himax_diag_attrs);
+ 	himax_power_down(ts);
+ 	himax_unlock(ts);
+ }
