@@ -334,3 +334,30 @@ grep -aq 'broken-reset'    $DTB && echo "不该有（EL2 专属）"
 | `gaokun3-7.2.5-el1.patch` | **我们的补丁**（相对 mainline v7.2.5） |
 
 安装/回滚：`scripts/gk-install-kernel.sh`（只新增 BLS 条目，默认不动 `loader.conf`，支持 `--uninstall`）。
+
+---
+
+## 9. 修订记录（每次重编一行，便于对照产物）
+
+| 内核串 | 日期 | 本修订的实质变化 | 产物 |
+|---|---|---|---|
+| `…-el1+`（追溯 r0） | 2026-09-13 | 首个自研 EL1 内核：gaokun3 板级 DTS + venus + 社区 SPI 触屏 | 见 §7 |
+| `…-el1-venus-r1` | 2026-09-13 | 引入 **Pengyu Luo v1** 的 `qcom,force-gsi-mode`（两条补丁），触屏改走 **GSI/DMA** | [release r1](https://github.com/aoripus/easy-for-gaokun/releases/tag/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913) |
+| `…-el1-venus-r2` | 2026-09-13 | AFE 命令邮箱传输层 + `afe_cmd` 节点 + 默认关闭的空闲策略（**该版本的策略已废弃**，见下） | 内部构建，未发布 |
+| **`…-el1-venus-r3`** | 2026-09-13 | **修复 `himax_lock/unlock` 中断使能不对称**；改为**中断门控采样**空闲策略（默认 7200 帧≈60 s / 30 ms），诊断节点 `frame`/`irq_gate`/`regs`/`idle_state` | [release r3](https://github.com/aoripus/easy-for-gaokun/releases/tag/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913) |
+
+**r2 为什么没发布**：r2 的空闲策略建立在"AFE 命令 `0x0A` 让 IC 停流"这一实测结论上，
+而该结论后来被证明是 **`himax_lock()` 屏蔽中断后从不恢复**造成的假象（写 sysfs 这个动作本身
+改变了被测对象）。r3 修掉缺陷后重新实测，得到完全不同的结论与策略。
+过程与数据见 [`docs/touch-idle-policy.md`](touch-idle-policy.md)，驱动增量见
+[`patches/touch-idle/`](../patches/touch-idle/README.md)。
+
+### 9.1 r3 构建与产物（2026-09-13）
+
+- 配方**与 §3 完全相同**，只把 `CONFIG_LOCALVERSION` 换成 `-aoripus-ml-gaokun3-eog-el1-venus-r3`；
+- 构建机 VM `192.168.236.129`（`build-el1-phase2.sh`，ccache 命中时约 3 分钟，360 个模块）；
+- 门禁全通过：`uname -r` 无尾部 `+`、EL1 DTB 含 `gpio174`/`sm8350-venus`/`qcvss8280.mbn`/`hx83121a`
+  且不含 `shm-bridge-vmid`/`broken-reset`；
+- 产物（8 项，与 r1 同名同结构）：`Image` 24,734,208 B、`modules-…-r3.tar.zst` 6,502,281 B、
+  `sc8280xp-huawei-gaokun3.dtb` 170,672 B、`config-…-r3`、`System.map-…-r3`、
+  `gaokun3-7.2.5-el1.patch` 178,960 B、`sha256sums.txt`、`BUILD-PROVENANCE.md`。
