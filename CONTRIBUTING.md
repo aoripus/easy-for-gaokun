@@ -48,7 +48,10 @@ cat /sys/devices/system/cpu/cpu7/cpufreq/cpuinfo_max_freq
 
 ### 设备树与内核补丁（上游化）
 
-修复或补充 `gaokun3` 的设备树与驱动：引脚复用、面板、触屏、EC 等。目标是让本地修复变成可以提交上游 Linux 的补丁，而不是永久停留在仓库内的分叉。补丁统一放在 `patches/`，命名与内核补丁一致，例如 `patches/0001-arm64-dts-qcom-sc8280xp-huawei-gaokun3-select-SPI-mode-for-touchscreen.patch`。
+修复或补充 `gaokun3` 的设备树与驱动：引脚复用、面板、触屏、EC 等。目标是让本地修复变成可以提交上游 Linux 的补丁，而不是永久停留在仓库内的分叉。
+
+补丁按**序列**组织：`patches/<序列名>/`，每个序列固定三件东西 —— `README.md`（元数据：用途 / 基线 / 上游状态 / 是否用于当前内核 / 验证 / 回滚）、`series`（应用顺序）、以及 `*.patch` 本身。
+总索引见 [`patches/README.md`](patches/README.md)，自检用 `scripts/check-patches.sh`。例如 `patches/touch-spi-mode/0001-arm64-dts-qcom-sc8280xp-huawei-gaokun3-select-SPI-mode-for-touchscreen.patch`。
 
 ### 适配脚本（`scripts/`）
 
@@ -94,9 +97,11 @@ cat /sys/devices/system/cpu/cpu7/cpufreq/cpuinfo_max_freq
 
 格式为 `<type>(<scope>): <subject>`：
 
-- `type` 取值：`feat`、`fix`、`docs`、`chore`、`refactor`、`test`、`perf`、`build`。
+- `type` 取值：`feat`、`fix`、`docs`、`style`、`refactor`、`perf`、`test`、`build`、`ci`、`chore`、`revert`。
 - 首行不超过 **72 字符**，使用**简体中文**，不以句号结尾。
 - 正文说明「改了什么、为什么」，必要时引用实机输出。
+- 仓库提供了提交信息模板：`git config commit.template .gitmessage`；规则同时写在
+  [`commitlint.config.mjs`](commitlint.config.mjs) 里（本地可用 `npx commitlint --edit` 校验）。
 
 ```text
 feat(scripts): 新增触屏诊断与修复脚本（gpio174 接口模式）
@@ -141,6 +146,19 @@ set -euo pipefail
 git config core.autocrlf false
 grep -rlU $'\r' scripts docs patches   # 应无输出
 ```
+
+## 提交前自检
+
+CI 会跑六个静态检查 job，本地用同一条命令即可复现（目标名与 CI 的 job 名一一对应）：
+
+```sh
+make check          # = lint-md + lint-sh + lint-py + lint-yaml + hygiene + patches
+```
+
+- Windows 开发机通常没有 `make`，用 `npm run check`（等价）。
+- 只跑补丁序列自检：`scripts/check-patches.sh`。
+- 依赖工具：`shellcheck`、`ruff`、`yamllint`（后两者 `pip install`）、Node/npx。
+- 也可安装提交前钩子：`pre-commit install`（配置见 [`.pre-commit-config.yaml`](.pre-commit-config.yaml)）。
 
 ## PR 流程
 
