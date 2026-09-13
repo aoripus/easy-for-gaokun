@@ -1,0 +1,63 @@
+diff --git a/drivers/media/platform/qcom/iris/iris_core.h b/drivers/media/platform/qcom/iris/iris_core.h
+index 24da60448..9e699635c 100644
+--- a/drivers/media/platform/qcom/iris/iris_core.h
++++ b/drivers/media/platform/qcom/iris/iris_core.h
+@@ -81,6 +81,7 @@ struct qcom_ubwc_cfg_data;
+ 
+ struct iris_core {
+ 	struct device				*dev;
++	struct qcom_scm_pas_context		*pas_ctx;
+ 	void __iomem				*reg_base;
+ 	int					irq;
+ 	struct v4l2_device			v4l2_dev;
+diff --git a/drivers/media/platform/qcom/iris/iris_firmware.c b/drivers/media/platform/qcom/iris/iris_firmware.c
+index 1a476146d..d5c21ffef 100644
+--- a/drivers/media/platform/qcom/iris/iris_firmware.c
++++ b/drivers/media/platform/qcom/iris/iris_firmware.c
+@@ -53,9 +53,29 @@ static int iris_load_fw_to_memory(struct iris_core *core, const char *fw_name)
+ 		goto err_release_fw;
+ 	}
+ 
+-	ret = qcom_mdt_load(dev, firmware, fw_name,
+-			    IRIS_PAS_ID, mem_virt, mem_phys, res_size, NULL);
++	if (!core->pas_ctx) {
++		core->pas_ctx = devm_qcom_scm_pas_context_alloc(dev, IRIS_PAS_ID,
++							       mem_phys, res_size);
++		if (IS_ERR(core->pas_ctx)) {
++			ret = PTR_ERR(core->pas_ctx);
++			core->pas_ctx = NULL;
++			goto err_unmap;
++		}
++
++		/*
++		 * easy-for-gaokun: when this kernel runs in EL2 there is no
++		 * hypervisor below us that could create the SHM bridge over the
++		 * firmware buffers, so Linux has to create it itself. This is
++		 * the same decision qcom_q6v5_pas.c makes from rproc->has_iommu.
++		 * Without it qcom_scm_pas_init_image() falls back to
++		 * dma_alloc_coherent() and the SCM call fails with -EINVAL.
++		 */
++		core->pas_ctx->use_tzmem = true;
++	}
++
++	ret = qcom_mdt_pas_load(core->pas_ctx, firmware, fw_name, mem_virt, NULL);
+ 
++err_unmap:
+ 	memunmap(mem_virt);
+ err_release_fw:
+ 	release_firmware(firmware);
+@@ -80,7 +100,13 @@ int iris_fw_load(struct iris_core *core)
+ 		return -ENOMEM;
+ 	}
+ 
+-	ret = qcom_scm_pas_auth_and_reset(IRIS_PAS_ID);
++	/*
++	 * easy-for-gaokun: use the context-aware variant. When running in EL2
++	 * the SHM bridge over the remote subsystem memory must be created by
++	 * Linux before authenticating; the plain qcom_scm_pas_auth_and_reset()
++	 * relies on a hypervisor doing that and returns -EINVAL here.
++	 */
++	ret = qcom_scm_pas_prepare_and_auth_reset(core->pas_ctx);
+ 	if (ret)  {
+ 		dev_err(core->dev, "auth and reset failed: %d\n", ret);
+ 		return ret;
