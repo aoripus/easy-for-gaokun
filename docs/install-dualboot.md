@@ -142,7 +142,7 @@ sudo blkid /dev/nvme0n1p4 /dev/nvme0n1p8
 
 必须与第 2 步记录的**逐字一致**：
 
-```
+```text
 /dev/nvme0n1p4: ... UUID="9146-7FE9"                              TYPE="vfat"
 /dev/nvme0n1p8: ... UUID="a2447957-fc4d-40d4-ab64-faf74f697471"   TYPE="ext4"
 ```
@@ -269,7 +269,7 @@ grep himax-spi-ts /proc/interrupts               # 触摸时计数应持续增�
 **后果**：开机按 F12 会看到两条一模一样的 "Windows Boot Manager"。
 **识别方法**：在 `efibootmgr -v` 里看设备路径 ——
 
-```
+```text
 Boot0001  …/HD(4,GPT,522cc1ee-…)/\EFI\systemd\systemd-bootaa64.efi     ← Linux
 Boot0003  …/HD(1,GPT,de14ce25-…)/\EFI\Microsoft\Boot\bootmgfw.efi      ← Windows
 ```
