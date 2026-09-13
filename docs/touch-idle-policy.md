@@ -168,7 +168,8 @@ himax-spi spi0.0: idle: one frame every 30ms after 240 contact-free frames
 **进空闲 → 触摸退出 → 重新计时** 的闭环在发布内核上成立。
 
 **边界与回滚**：面板熄灭/点亮、`inplace_reset`、驱动卸载都会取消 work 并清状态；
-策略默认关闭（`idle_enter_frames=0`），`idle_poll_ms` 可调；安装/回滚走 `scripts/gk-install-kernel.sh`。
+策略**默认启用**（`idle_enter_frames=7200` ≈ 60 s，`idle_poll_ms=30`），
+`idle_enter_frames=0` 可完全关闭，`idle_poll_ms` 可调；安装/回滚走 `scripts/gk-install-kernel.sh`。
 
 ## 6. 未采纳的方案与理由
 
