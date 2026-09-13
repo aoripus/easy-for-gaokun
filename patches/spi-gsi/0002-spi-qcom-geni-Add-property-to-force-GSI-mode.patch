@@ -1,0 +1,53 @@
+From fb123793bfdc5a58f94aaf54ae06b47c9c797b7e Mon Sep 17 00:00:00 2001
+From: Pengyu Luo <mitltlatltl@gmail.com>
+Date: Sun, 14 Jun 2026 16:17:42 +0800
+Subject: [PATCH 2/2] spi: qcom-geni: Add property to force GSI mode
+
+Some devices (such as gaokun3) do not disable FIFO mode, causing the
+driver to fallback to FIFO mode by default. However, these platforms
+also support GSI mode, which is highly preferred for certain
+peripherals like SPI touchscreens to improve performance.
+
+Introduce the "qcom,force-gsi-mode" device property to hint and force
+the controller into GSI mode during initialization.
+
+Signed-off-by: Pengyu Luo <mitltlatltl@gmail.com>
+Link: https://lore.kernel.org/linux-arm-msm/20260614083424.464132-2-mitltlatltl@gmail.com
+---
+ drivers/spi/spi-geni-qcom.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/spi/spi-geni-qcom.c b/drivers/spi/spi-geni-qcom.c
+index 26e723cfea61..eece7312f780 100644
+--- a/drivers/spi/spi-geni-qcom.c
++++ b/drivers/spi/spi-geni-qcom.c
+@@ -102,6 +102,7 @@ struct spi_geni_master {
+ 	int irq;
+ 	bool cs_flag;
+ 	bool abort_failed;
++	bool force_gsi_mode;
+ 	struct dma_chan *tx;
+ 	struct dma_chan *rx;
+ 	int cur_xfer_mode;
+@@ -655,6 +656,9 @@ static int spi_geni_init(struct spi_geni_master *mas)
+ 		mas->oversampling = 1;
+ 
+ 	fifo_disable = readl(se->base + GENI_IF_DISABLE_RO) & FIFO_IF_DISABLE;
++	if (mas->force_gsi_mode)
++		fifo_disable = 1;
++
+ 	switch (fifo_disable) {
+ 	case 1:
+ 		ret = spi_geni_grab_gpi_chan(mas);
+@@ -1133,6 +1137,9 @@ static int spi_geni_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	if (device_property_read_bool(&pdev->dev, "qcom,force-gsi-mode"))
++		mas->force_gsi_mode = true;
++
+ 	ret = spi_geni_init(mas);
+ 	if (ret)
+ 		return ret;
+-- 
+2.54.0
