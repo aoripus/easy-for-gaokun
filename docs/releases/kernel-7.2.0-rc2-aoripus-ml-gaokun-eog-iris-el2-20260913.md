@@ -53,28 +53,62 @@ qcom-venus aa00000.video-codec: fail to load video firmware
 
 ## 安装
 
-产物未执行 `modules_install`，也未写入 ESP，需要手工放置。建议新增一个独立启动项，保留现有条目为默认值。
+产物未执行 `modules_install`，需要在目标机上手工落位。以下步骤在 GK-W7X 上实测通过。
+
+基线镜像把内核交给 `kernel-install` 管理（`/etc/kernel/install.conf` 为 `layout=bls`，
+条目名 `<machine-id>-<内核 release 串>.conf`），因此按同一机制生成条目最稳妥：
 
 ```bash
 REL=7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+
-MACHINE=8a29534fa802480d9fbb71aa18c01d7b      # /etc/machine-id
-ESP=/boot/efi/$MACHINE/$REL
+MACHINE=$(cat /etc/machine-id)
+SRC=/var/tmp/iris-install          # 产物所在目录
 
-# 1) 内核与设备树
-sudo mkdir -p "$ESP"
-sudo cp Image "$ESP/linux"
-sudo cp sc8280xp-huawei-gaokun3-el2.dtb "$ESP/sc8280xp-huawei-gaokun3-el2.dtb"
-
-# 2) 模块（原有内核的模块目录保持不动）
-sudo tar --zstd -xf modules-$REL.tar.zst -C /lib/modules/$REL/
+# 1) 模块：包内路径相对于模块根，解到 /lib/modules/$REL
+sudo mkdir -p "/lib/modules/$REL"
+sudo tar --zstd -xf "$SRC/modules-$REL.tar.zst" -C "/lib/modules/$REL/"
 sudo depmod -a "$REL"
 
-# 3) 新增启动项，options 沿用现有条目，只改 devicetree 与 initrd 路径
-sudo cp /boot/efi/loader/entries/$MACHINE-7.1.0-rc3-gaokun3-el2+.conf \
-        /boot/efi/loader/entries/$MACHINE-$REL.conf
-#   然后将条目内的 linux / devicetree / initrd / version 改为上面的路径
+# 2) 内核与设备树
+#    90-loaderentry.install 会在若干前缀下查找 /etc/kernel/devicetree 指定的相对路径，
+#    因此 DTB 必须落到 /usr/lib/modules/$REL/dtb/<相对路径>
+sudo cp "$SRC/Image" "/boot/vmlinuz-$REL"
+sudo mkdir -p "/usr/lib/modules/$REL/dtb/qcom"
+sudo cp "$SRC/sc8280xp-huawei-gaokun3-el2.dtb" \
+        "/usr/lib/modules/$REL/dtb/qcom/sc8280xp-huawei-gaokun3-el2.dtb"
+sudo cp "$SRC/sc8280xp-huawei-gaokun3-el2.dtb" "/boot/dtb-$REL"
+sudo cp "$SRC/config-$REL" "$SRC/System.map-$REL" /boot/
 
-# 4) 回滚：把 loader.conf 的 default 改回原条目，或删除新条目
+# 3) initrd：55-initrd.install 只把已存在的 /boot/initrd.img-$REL 链接进暂存区，
+#    所以必须先自行生成，否则生成的条目里不会有 initrd
+sudo update-initramfs -c -k "$REL"
+
+# 4) 生成启动项（不动 loader.conf 的 default）
+sudo kernel-install add "$REL" "/boot/vmlinuz-$REL"
+
+# 5) 两条条目默认同名，改成可辨识的名字
+sudo sed -i "s|^title .*|title      Ubuntu 26.04 LTS (IRIS 7.2.0-rc2)|" \
+        "/boot/efi/loader/entries/$MACHINE-$REL.conf"
+```
+
+## 试启动与回滚
+
+systemd-boot 支持 one-shot 条目：只启动一次，失败则下次开机自动回到原默认条目。
+`loader.conf` 全程不必修改。
+
+```bash
+sudo bootctl set-oneshot "$MACHINE-$REL.conf"
+sudo systemctl reboot
+```
+
+启动后核对：`uname -r`、`dmesg | grep -iE 'iris|qcom_scm|q6v5_pas'`、`ls /dev/video*`，以及触摸是否可用。
+
+回滚即删除新增的这几处，基线内核不受影响：
+
+```bash
+sudo rm -rf "/boot/efi/$MACHINE/$REL"
+sudo rm -f  "/boot/efi/loader/entries/$MACHINE-$REL.conf"
+sudo rm -rf "/lib/modules/$REL" "/usr/lib/modules/$REL/dtb"
+sudo rm -f  /boot/vmlinuz-$REL /boot/dtb-$REL /boot/config-$REL /boot/System.map-$REL /boot/initrd.img-$REL
 ```
 
 完整的构建与安装说明见 `docs/build-kernel-iris.md`。
