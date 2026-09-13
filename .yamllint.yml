@@ -15,6 +15,10 @@ rules:
     min-spaces-from-content: 1
   comments-indentation: disable
   truthy:
+    # GitHub Actions 的 `on:` 是**键名**，而 YAML 1.1 会把 on/off 读成布尔值。
+    # 本仓库的工作流坚持写未加引号的 `on:`（这是 Actions 的规范写法），
+    # 因此关掉对键名的 truthy 检查，只保留对值的放行列表。
+    check-keys: false
     allowed-values: ['true', 'false', 'on', 'off']
   document-start: disable
   brackets:
