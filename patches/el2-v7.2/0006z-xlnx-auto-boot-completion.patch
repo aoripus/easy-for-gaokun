@@ -1,0 +1,22 @@
+diff --git a/drivers/remoteproc/xlnx_r5_remoteproc.c b/drivers/remoteproc/xlnx_r5_remoteproc.c
+index c32461ddb..e20da4266 100644
+--- a/drivers/remoteproc/xlnx_r5_remoteproc.c
++++ b/drivers/remoteproc/xlnx_r5_remoteproc.c
+@@ -945,7 +945,7 @@ static struct zynqmp_r5_core *zynqmp_r5_alloc_rproc_core(struct device *cdev)
+ 
+ 	/* attempt to boot automatically if the firmware-name is provided */
+ 	if (fw_name)
+-		r5_rproc->auto_boot = true;
++		r5_rproc->auto_boot = RPROC_AUTO_BOOT_ATTACH_OR_START;
+ 
+ 	r5_core = r5_rproc->priv;
+ 	r5_core->dev = cdev;
+@@ -1288,7 +1288,7 @@ static int zynqmp_r5_core_init(struct zynqmp_r5_cluster *cluster,
+ 			if (zynqmp_r5_get_rsc_table_va(r5_core))
+ 				dev_dbg(r5_core->dev, "rsc tbl not found\n");
+ 			r5_core->rproc->state = RPROC_DETACHED;
+-			r5_core->rproc->auto_boot = true;
++			r5_core->rproc->auto_boot = RPROC_AUTO_BOOT_ATTACH_OR_START;
+ 		}
+ 	}
+ 
