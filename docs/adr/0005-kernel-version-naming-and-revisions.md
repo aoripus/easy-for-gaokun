@@ -16,7 +16,7 @@ ESP 目录名。若版本串不携带足够信息，多个内核会互相覆盖�
 
 ## 决策（Decision）
 
-```
+```text
 uname -r = <上游>-aoripus-ml-gaokun3-eog-<级别>-<VPU驱动>-r<n>
 tag      = kernel-<完整内核串>-<YYYYMMDD>
 标题     = Kernel <上游> (<级别>) <驱动大写>[ r<n> ]
