@@ -8,7 +8,7 @@ Android 容器，目标是把社区内核已经跑通的"能开机"，推进到"
 > **状态：早期适配中；触屏已修复并实机验证通过。** 系统可正常启动并进入 GNOME Wayland 桌面，
 > 显示、背光、电源管理、**触摸输入**与**扬声器增益调优**均已完成并实机验证；
 > 已可在内置盘上实现 **Windows + Ubuntu 双系统**。
-> 剩余缺口见 §2，最主要是视频硬解与手写笔；**指纹已取证结案：硬件不可达，见 §2.2**。
+> 剩余缺口见 §2，主要是视频硬解与手写笔；指纹的结论是硬件不可达，见 §2.3。
 
 ---
 
@@ -28,9 +28,9 @@ Android 容器，目标是把社区内核已经跑通的"能开机"，推进到"
 | 形态 | 平板（设备树 `chassis-type = tablet`），磁吸键盘可分离 |
 | 安全启动 | 已关闭（本机型需关闭才能引导自编译内核） |
 
-### ⚠️ 变体鉴别（**做任何操作前必须先确认**）
+### 变体鉴别（操作前须先确认）
 
-同系列存在两个**极其容易混淆**、且**本项目不支持**的变体：
+同系列存在两个容易混淆、本项目不支持的变体：
 
 | 变体 | 关键差异 | 后果 |
 |------|----------|------|
@@ -46,7 +46,7 @@ Android 容器，目标是把社区内核已经跑通的"能开机"，推进到"
 ```
 
 本机 DMI 报的是 `GK-W7X`，而非通常引用的 `GK-W76`；且电商页面存在把 2023 版标成 `GK-W76` 的情况。
-**请使用下列硬判据确认机型：**
+确认机型应使用下列判据：
 
 ```bash
 # ① 设备树（最可靠）
@@ -70,7 +70,7 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
 
 以下为在目标机上的**实测**结果。
 
-### ✅ 已可用
+### 已可用
 
 | 项目 | 状态 |
 |------|------|
@@ -87,7 +87,7 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
 | 网络 | Wi-Fi 与蓝牙均可正常工作 |
 | 双系统 | 内置盘保留 Windows，Ubuntu 装于独立分区，固件引导项可切换（见 §4.3） |
 
-### ❌ 待解决
+### 待解决
 
 | 项目 | 现象 | 优先级 |
 |------|------|:------:|
@@ -95,7 +95,7 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
 | 镜像默认项 | 镜像自带 `loader.conf` 的 `default` 指向非 `el2` 条目，该内核在 GUI 阶段卡住 | P1 |
 | 镜像根属主 | 镜像根目录属主为 **uid 1001** 而非 root，导致 `systemd-tmpfiles` 报 100+ 条 `unsafe path transition` | P1 |
 | 手写笔 | Linux 侧**从未实现**笔通道（驱动不声明 `BTN_TOOL_PEN` / `ABS_PRESSURE`） | P2 |
-| **指纹** | FocalTech FTE7001；其 SPI **由 Qualcomm 安全世界独占**，非安全侧只拿到一个 GPIO 中断连接。**已取证结案，见 §2.3** | 不可行 |
+| **指纹** | FocalTech FTE7001；其 SPI **由 Qualcomm 安全世界独占**，非安全侧只拿到一个 GPIO 中断连接。**见 §2.3** | 不可行 |
 | 音频残余 | 四扬声器空间音效（Windows 侧 Histen `SWS_HP_3D*_MULTI`）与主动扬声器保护在 Linux 上无对应实现；**不打算用猜测性软件 EQ 掩盖** | 能力边界 |
 | `qcom-apm` | 开机报 `CMD timeout`，`qcom-soundwire` 端口数不匹配（声卡仍能注册，实际影响待评估） | P2 |
 | EC 设备链接 | `gaokun-ec` 无法与 USB 控制器建立 device link | P2 |
@@ -124,7 +124,7 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
   → 触屏表现为完全死掉
 ```
 
-这正是它**极难排查**的原因：驱动侧一切"看起来正常"，日志里一个错误都没有。
+这使问题难以排查：驱动侧一切看起来正常，日志里没有任何错误。
 
 **实机对照。** 在 `gpio174` 保持低电平、并在该状态下重载触控固件之后：
 
@@ -143,12 +143,11 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
 该脚只需在**触控固件重载之前**为低，模式即被 IC 锁存；安装脚本会在 dd 之前把补丁
 预先编译进 ESP 上的 DTB，因此**首次启动触屏就能用**，不需要任何常驻进程或服务。
 
-**这是本项目的第一个上游化候选**：社区设备树与本机固件行为的这一处不一致，
-目前没有任何一方处理。
+社区设备树与本机固件行为的这处不一致目前无人处理，是本项目的第一个上游化候选。
 
 ### 2.2 音频：被内核主动锁住的 21 dB（已实机验证）
 
-"音质不像四扬声器 HUAWEI SOUND"不是故障，而是**三层叠加的必然结果**：
+不是故障，而是**三层因素叠加的结果**：
 
 1. **内核主动限幅**。`sound/soc/qcom/sc8280xp.c` 里
    `snd_soc_limit_volume(card, "SpkrLeft PA Volume", 17)`，
@@ -162,7 +161,7 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
    `LENOVO-X13s.conf`，其 `BootSequence` 把功放增益写成 `12` —— 按曲线是 **−3.00 dB**。
 
 **本项目的处置**：只把 PA Volume 从 `12`（−3.00 dB）提到内核上限 `17`（0.00 dB），
-**净收益 +3.00 dB**；**绝不取消内核限幅** —— Linux 侧没有任何主动扬声器保护
+**净收益 +3.00 dB**；**不取消内核限幅** —— Linux 侧没有任何主动扬声器保护
 （`VISENSE` 在 UCM 里被显式关闭、ADSP Speaker Protection 默认关闭且无校准数据），
 越限有烧毁扬声器的实际风险。当前链路总增益 −3.00 dB（数字侧另被限 −3.00 dB），
 距硬件可达的 +18.00 dB **仍差 21.00 dB**，这部分在拿到真正的保护与调音数据前不会动。
@@ -176,10 +175,10 @@ sudo ./scripts/30-audio.sh --revert     # 精确撤销
 **关键实现细节**：ucm2 的查找顺序是 `conf.d/<driver>/<CardLongName>.conf` 优先于
 `conf.d/<driver>/<driver>.conf`，因此本项目写入 `${CardLongName}.conf`
 （本机为 `HUAWEI-GK_W7X-M1010-GK_W7X_PCB`）即可**优先于镜像自带的 DMI 分发器**，
-且不会被 `alsa-ucm-conf` 升级覆盖。完整论证、量化与安全红线见
+且不会被 `alsa-ucm-conf` 升级覆盖。完整论证、量化与增益上限见
 [`docs/audio.md`](docs/audio.md)。
 
-### 2.3 指纹：硬件不可达（已取证结案）
+### 2.3 指纹：硬件不可达
 
 **结论**：本机指纹是 **FocalTech FTE7001**（`ACPI\FTE7001`），挂在 **SPI** 上，
 但那条 SPI **由 Qualcomm 安全世界（QSEE/TEE）独占**；Windows 的非安全侧驱动
@@ -204,7 +203,7 @@ sudo ./scripts/40-fingerprint.sh              # Linux 侧只读检查
 sudo ./scripts/40-fingerprint.sh --windows-hive  # 只读挂载 Windows 分区并解出 ACPI 枚举与资源
 ```
 
-> ⚠️ **方法论修正**：`Drv/` 目录**不是本机硬件清单**，而是整份 Gaokun 家族主镜像的驱动库
+> **方法论修正**：`Drv/` 目录**不是本机硬件清单**，而是整份 Gaokun 家族主镜像的驱动库
 > （`PAR_install.cmd` 用 `DISM /add-driver /recurse` 把 FocalTech 与 Goodix 两套指纹驱动
 > 一起注入）。判断本机硬件必须看**运行时枚举结果**，不能看驱动包里有没有某个 INF。
 >
@@ -254,7 +253,7 @@ easy-for-gaokun/
 │   └── ucm2/Qualcomm/sc8280xp/HUAWEI-GK-W7X.conf   gaokun3 专用 ALSA UCM2 profile
 ├── scripts/                 一键化适配与诊断工具
 │   ├── lib/common.sh           公共函数库
-│   ├── 00-preflight.sh         设备鉴别与前检（变体红线校验）
+│   ├── 00-preflight.sh         设备鉴别与前检（变体判据校验）
 │   ├── 10-install-dualboot.sh  安装到内置盘（Windows + Ubuntu 双系统）
 │   ├── 20-touchscreen.sh       触屏诊断与修复（gpio174 接口模式）
 │   ├── 30-audio.sh             音频诊断与调优（安装 gaokun3 专用 UCM profile）
@@ -263,7 +262,7 @@ easy-for-gaokun/
 │   ├── 60-desktop.sh           平板化桌面（屏幕键盘、手势、扩展）  [规划中]
 │   ├── 70-waydroid.sh          Android 容器                       [规划中]
 │   └── 90-report.sh            一键生成诊断报告
-├── tools/                   独立分析工具（不修改系统的取证/解析脚本）
+├── tools/                   只读分析工具（解析脚本，不修改系统状态）
 │   └── win-acpi-hive.py        离线解析 Windows SYSTEM hive，读出本机 ACPI 枚举与资源
 ├── patches/                 面向上游的内核 / 设备树补丁
 └── docs/                    技术文档
@@ -285,7 +284,7 @@ git clone https://github.com/aoripus/easy-for-gaokun.git
 cd easy-for-gaokun
 
 # ① 设备鉴别与前检（只读，必须先跑）
-#    校验设备树、大核频率、面板与触屏设备，任一红线不过则中止
+#    校验设备树、大核频率、面板与触屏设备，任一判据不符则中止
 sudo ./scripts/00-preflight.sh
 
 # ② 安装到内置盘（Windows + Ubuntu 双系统）   [已实现并实机验证]
@@ -316,8 +315,8 @@ sudo ./scripts/90-report.sh
 
 执行约定：
 
-- `00-preflight.sh` 只做**只读鉴别**，确认设备树 compatible 与 CPU 最高频率符合 §1 红线；
-  **任何后续改动步骤都不得在未通过前检的机器上执行。**
+- `00-preflight.sh` 只做**只读鉴别**，确认设备树 compatible 与 CPU 最高频率符合 §1 判据；
+  后续改动步骤不应在未通过前检的机器上执行。
 - 脚本统一通过 `scripts/lib/common.sh` 复用日志、判别与回滚辅助函数。
 - 各步骤相互独立，可按需单独执行；`90-report.sh` 可在任意阶段运行。
 - 所有脚本支持 `DRY_RUN=1` 空跑预览；改动类脚本默认逐项确认。
@@ -334,7 +333,7 @@ sudo ./scripts/90-report.sh
 ```
 
 因为 `dd` 会**原样保留文件系统 UUID**，而 `/etc/fstab` 与 BLS 的 `root=UUID=` 完全依赖 UUID，
-所以**这两处配置一个字都不用改** —— 这是该方法最大的优势。
+所以**这两处配置无需改动** —— 这是该方法的主要优势。
 
 需要特别注意的几点：
 
@@ -345,7 +344,7 @@ sudo ./scripts/90-report.sh
 | 镜像缺陷 | 根目录属主为 uid 1001，装完执行 `chown root:root /` |
 | 触屏 | `dd` 之前把 `patches/` 里的 `gpio174` 补丁**编译进 ESP 上的 DTB**，首次启动触屏即可用 |
 | 固件行为 | 本机固件会把**自建引导项重命名为 "Windows Boot Manager"**；用 `efibootmgr -o` 调整顺序即可，名字改不动 |
-| ⚠️ UUID 冲突 | 同一镜像 `dd` 出的两块盘 **UUID 完全相同**，**不可同时接入**，否则 `UUID=… /boot/efi` 可能挂到另一块盘 |
+| UUID 冲突 | 同一镜像 `dd` 出的两块盘 **UUID 完全相同**，**不可同时接入**，否则 `UUID=… /boot/efi` 可能挂到另一块盘 |
 
 ---
 
@@ -379,7 +378,7 @@ sudo ./scripts/90-report.sh
 sudo ./scripts/90-report.sh > gaokun-report.txt
 ```
 
-并在 issue 中附上该文件。请务必在 issue 开头写明你的机型属于三者中的哪一个
+并在 issue 中附上该文件。请在 issue 开头写明你的机型属于三者中的哪一个
 （2022 性能版 / 2022 LTE 版 / 2023 版），以及 §1 三条判据的实际输出。
 
 ---
@@ -406,8 +405,8 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 内核产物的构建溯源（源码 tag、补丁集、构建脚本、复现命令）随产物一同发布为
 `BUILD-PROVENANCE.md`，以满足 GPL-2.0 的对应源码要求并保证可复现。
 
-> ⚠️ 内核产物为**实验性构建**，未经启动验证的一律在 Release 说明里显式标注。
-> 本机型**没有 EDL / 9008 救援通道**，刷写前请务必保留可用启动项。
+> 内核产物为**实验性构建**，未经启动验证的一律在 Release 说明里显式标注。
+> 本机型**没有 EDL / 9008 救援通道**，刷写前应保留可用启动项。
 
 ---
 
@@ -440,6 +439,6 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 ## 10. 免责声明
 
 刷写镜像、修改分区与引导配置**可能导致设备无法启动**。本机型**没有 EDL / 9008 救援通道**，
-一旦引导损坏，恢复手段极为有限。请务必先完整备份。
+一旦引导损坏，恢复手段有限，操作前应完整备份。
 
 本项目**仅**针对上述确切机型。作者不对任何数据丢失或硬件损坏负责，使用风险自负。
