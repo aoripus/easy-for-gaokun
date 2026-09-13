@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # 本脚本的常量含"仅作文档/预留"者（如 BASE_IMAGE_TAG 与 --yes 的 ASSUME_YES），见各声明处注释
 #
-# 30-install-dualboot.sh — 把社区镜像安装到内置盘，与 Windows 共存
+# 10-install-dualboot.sh — 把社区镜像安装到内置盘，与 Windows 共存
 #
 # 本脚本自动化的是「分区级 dd」安装法：社区镜像是整盘镜像（GPT + 1 GiB ESP +
 # ~11 GiB ext4 rootfs），无法整个 dd 进一个分区，因此改为在目标盘上新建两个分区，
