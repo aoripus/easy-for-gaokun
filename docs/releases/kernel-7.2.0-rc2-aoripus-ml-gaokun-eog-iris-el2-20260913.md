@@ -20,22 +20,39 @@
 本机是标准 UEFI 平台：有固件设置界面、可从 USB 启动、ESP 是普通 FAT32 分区。安装时保留原
 默认条目即可；即使引导项写错，也能用 U 盘启动挂载 ESP 修复。
 
-## 视频硬解的状态
+## 视频硬解的状态：已定位到 EL2 的复位语义
 
-固件加载在 EL2 下要跨过四道 SCM 调用，本产物停在最后一道：
+固件启动要跨过四道关卡，本产物停在第四道：
 
-| 阶段 | 结果 |
-|---|---|
-| `qcom_scm_pas_init_image`（认证固件元数据） | 通过 |
-| `qcom_scm_pas_auth_and_reset`（启动并解复位） | 通过 |
-| `qcom_scm_mem_protect_video_var`（设置受保护内存区） | **`-5`（EIO）** |
-| 打开 `/dev/video0` | `EIO` |
+| 阶段 | 结果 | 说明 |
+|---|---|---|
+| `qcom_scm_pas_init_image` | 通过 | 需要 `patches/iris-el2/` 的 tzmem/ctx 修复，否则报 `-22` |
+| `qcom_scm_pas_auth_and_reset` | 通过 | 需要改用 `qcom_scm_pas_prepare_and_auth_reset()`：EL2 下 SHM bridge 必须由 Linux 自建 |
+| `qcom_scm_mem_protect_video_var` | `-5`（EIO） | 只服务于 DRM 内容保护；改为非致命后不影响后续步骤 |
+| `iris_vpu_boot_firmware` | **`-62`（ETIME）** | 驱动写 `CTRL_INIT` 后轮询 1000 次（约 110 ms），`CTRL_STATUS` 恒为 `0` |
 
-前两步依赖 `patches/el2-v7.2/` 与 `patches/iris-el2/`：前者提供 EL2 下的 self-owner SHM
-bridge 与 `qcom,broken-reset`，后者把 iris 驱动由 EL1 假设改为 ctx 感知路径（两个目录下各有
-README 说明）。第三道调用被 TrustZone 拒绝，与上游 EL2 补丁 0018 的描述一致 —— EL2 下可以
-认证并启动固件，但远程处理器不会真正脱离复位；remoteproc 靠在位接管绕过，而视频核心必须由
-Linux 自行启动，因此在 EL2 下仍不可用。
+`iris_vpu_boot_firmware` 前后各读一次寄存器，读数完全一致：
+
+```text
+CTRL_STATUS=0x0
+WRAPPER_CORE_POWER_STATUS=0x2          （wrapper 有电）
+WRAPPER_TZ_CPU_STATUS=0x0              （WFI 位为 0：核心不在运行/空闲态）
+WRAPPER_CORE_CLOCK_CONFIG=0x0
+```
+
+即 **wrapper 有电，但视频核心始终没有执行固件**。已排除的两个变量：
+
+- **固件代次**：换用 X13s 的 `qcvss8280.mbn`（2,035,812 B，与华为那份 2,035,748 B 仅差 64
+  字节）后结果逐字节相同 —— 同样的 `-62`、同样的寄存器读数；
+- **固件内存可达性**：`video-region@86700000`（2.10 GiB，5 MiB）远低于驱动
+  `sm8250_data.dma_mask`（`0xe0000000`）。
+
+这与上游 EL2 补丁 `0018` 的原文一致：EL2 下可以认证并启动固件，但远程处理器不会真正脱离
+复位。remoteproc 靠 `qcom,broken-reset` 跳过复位、接管引导固件已启动的实例来绕过；视频核心
+必须由 Linux 自行启动，没有"在位接管"这条路，因此在 EL2 下不可用。要让视频硬解可用，需要
+内核运行在 EL1（下面有 hypervisor 代管 PAS），而本机固件是把 Linux 直接投到 EL2。
+
+实验记录与复现步骤见 [`patches/iris-el2/README.md`](../../patches/iris-el2/README.md)。
 
 ## 变更
 
