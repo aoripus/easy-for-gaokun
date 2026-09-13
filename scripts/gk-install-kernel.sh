@@ -151,15 +151,19 @@ if [ "$NO_KERNEL" = 0 ]; then
   command -v depmod >/dev/null && { info "depmod -a $KVER"; depmod -a "$KVER" || info "警告: depmod 返回非 0"; }
 
   # ---- 2. 生成 initrd -------------------------------------------------------
+  # 说明：**优先用 mkinitramfs**。Ubuntu 的 `update-initramfs` 会触发
+  # /etc/initramfs/post-update.d/ 下的 systemd-boot 钩子，该钩子会再跑一次
+  # kernel-install 并按 /etc/kernel/devicetree 去找 DTB；本项目的 DTB 不在
+  # 发行版预期位置时它会失败，从而把整个安装流程带崩（实测）。
   info "生成 initrd"
-  if command -v update-initramfs >/dev/null; then
-    update-initramfs -c -k "$KVER"
-  elif command -v mkinitramfs >/dev/null; then
-    mkinitramfs -o "/boot/initrd.img-$KVER" "$KVER"
+  if command -v mkinitramfs >/dev/null; then
+    mkinitramfs -o "/boot/initrd.img-$KVER" "$KVER" || die "mkinitramfs 失败"
+  elif command -v update-initramfs >/dev/null; then
+    update-initramfs -c -k "$KVER" || info "警告: update-initramfs 返回非 0（钩子可能失败），继续"
   elif command -v dracut >/dev/null; then
-    dracut --force "/boot/initrd.img-$KVER" "$KVER"
+    dracut --force "/boot/initrd.img-$KVER" "$KVER" || die "dracut 失败"
   else
-    die "没有可用的 initrd 生成工具（update-initramfs / mkinitramfs / dracut）"
+    die "没有可用的 initrd 生成工具（mkinitramfs / update-initramfs / dracut）"
   fi
   [ -s "/boot/initrd.img-$KVER" ] || die "initrd 生成失败"
 fi
