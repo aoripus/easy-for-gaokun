@@ -56,14 +56,13 @@ jobs:
           sudo apt-get install -y shellcheck
 
       # -x：跟随 source 指令，把被引用的文件（如 scripts/lib/common.sh）一并检查
-      # --rcfile：显式指定仓库根的配置。ShellCheck 只在**被检查脚本所在目录**里找
-      #           .shellcheckrc，脚本位于 scripts/ 与 tools/ 时不会向上找到仓库根，
-      #           因此必须显式传入（本地 Makefile / npm 脚本 / pre-commit 同理）。
-      # -S warning：严重级别只能由命令行指定（实测 rcfile 里的 severity 不生效）。
+      # -S warning：严重级别只能由命令行指定（rcfile 里的 severity 不生效）。
+      #             .shellcheckrc 由 ShellCheck 从被检查脚本所在目录向上自动发现，
+      #             不要加 `--rcfile`：Ubuntu 24.04 的 apt 版（0.9.0）没有该选项。
       - name: shellcheck -x
         run: |
           find scripts tools -type f -name '*.sh' -print0 \
-            | xargs -0 -r shellcheck --rcfile=.shellcheckrc -S warning -x
+            | xargs -0 -r shellcheck -S warning -x
 
       - name: bash -n（逐文件语法检查）
         run: |
