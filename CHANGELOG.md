@@ -13,12 +13,12 @@
 
 ## [0.1.0] - 2026-09-13
 
-首个里程碑：设备鉴别 → 双系统安装 → 触屏修复 → 音频调优 → 外设结案 → 内核构建配方。
+首个版本：设备鉴别、双系统安装、触屏修复、音频调优、外设调查与内核构建配方。
 
 ### 新增
 
 - **设备鉴别前检** `scripts/00-preflight.sh`：校验设备树 `compatible`、大核最高频率、
-  面板与触控设备，任一红线不过即中止；用于排除 2022 LTE 版（8cx Gen 2 / gaokun2）
+  面板与触控设备，任一判据不符即中止；用于排除 2022 LTE 版（8cx Gen 2 / gaokun2）
   与 2023 降频版。
 - **双系统安装** `scripts/10-install-dualboot.sh`：把社区整盘镜像按**分区级 `dd`**
   落到内置盘，保留 Windows；含 GPT 备份、UUID 硬校验、`resize2fs`、
@@ -29,7 +29,7 @@
   gaokun3 专用 ALSA UCM2 profile，功放增益由 X13s profile 的 `12`（−3.00 dB）
   提到内核限幅上限 `17`（0.00 dB）。
 - **指纹调查** `scripts/40-fingerprint.sh`：只读探针，含从 Windows 分区取
-  `SYSTEM` 注册表 hive 的取证路径。
+  `SYSTEM` 注册表 hive 的采集路径。
 - **一键诊断报告** `scripts/90-report.sh`：提 issue 用的只读体检报告。
 - **分析工具**：`tools/win-acpi-hive.py`（离线解析 Windows 注册表，读出本机真正
   枚举过的 ACPI 设备与资源分配）、`tools/acpi-devmem-dump.py`（从 `/dev/mem`
@@ -38,10 +38,10 @@
 ### 文档
 
 - `docs/install-dualboot.md` —— 双系统安装完整步骤与实机踩坑。
-- `docs/audio.md` —— 音频质量归因、量化与安全红线。
+- `docs/audio.md` —— 音频质量归因、量化与增益上限。
 - `docs/video-decode.md` —— 视频硬解归因（IRIS 而非 Venus）与可行路径。
 - `docs/build-kernel-iris.md` —— IRIS 内核构建配方（含实机构建验证后的修正）。
-- `docs/fingerprint.md` —— 指纹可行性调查结案。
+- `docs/fingerprint.md` —— 指纹可行性调查结论。
 
 ### 已核实的关键结论
 
@@ -49,13 +49,13 @@
   无人接管，是触屏完全失效的根因。
 - **音频**：音质差是三层叠加 —— 内核主动限幅、Linux 侧完全没有 Histen 逐机型调音、
   以及加载了双扬声器的 X13s profile。硬件尚余 21.00 dB 未使用，但主动扬声器保护
-  缺失，本项目**只把增益提到内核限幅值，绝不取消限幅**。
+  缺失，本项目**只把增益提到内核限幅值，不取消内核限幅**。
 - **视频**：本机是 Qualcomm IRIS(Gen1) 而非经典 Venus；v7.1-rc3/v7.2-rc2 的上游树里
   都没有 sc8280xp 视频节点（v7.3-rc1 才有），buildbot 的 `patches/media/0006` 是过时的
   venus 形态。
 - **指纹**：FocalTech FTE7001，其 SPI **由 Qualcomm 安全世界独占**，非安全侧只拿到
   一个 GPIO 中断连接 —— Linux 走常规驱动路线不可达。
-- **不要用平板当编译机**：无风扇机型上 `make -j8` 会触发硬件级瞬间断电
+- **平板不适合作为编译机**：无风扇机型上 `make -j8` 会触发硬件级瞬间断电
   （日志无任何关机序列，温度仅 33 °C）。
 
 ### 已知问题
