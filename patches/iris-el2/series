@@ -1,0 +1,6 @@
+# patches/iris-el2/series —— 本目录补丁的应用顺序
+#
+# ★ 本序列属**历史归档**：IRIS 在 EL2 下的路线已放弃（结论见同目录 README、
+#   docs/video-decode.md 与 docs/windows-video-tz-interface.md）。
+#   当前发布内核走 EL1 + venus，**不使用**本目录补丁。
+0001-media-iris-use-tzmem-and-ctx-aware-auth-for-EL2.patch
