@@ -61,8 +61,9 @@
 
 ### 已知问题
 
-- 视频硬解尚未跑通；IRIS 与 Venus 走同一条 PAS/安全世界通路，而该机
-  `qcom_scm_pas_init_image()` 已知失败 —— 换驱动不改变这条通路是否可用。
+- 视频硬解尚未跑通；IRIS 与 Venus 走同一条 PAS/安全世界通路，其可用性取决于
+  `patches/el2/*` 中的 self-owner 与 `qcom,broken-reset` 改动（缺少该组补丁时
+  adsp/cdsp/slpi/venus 的固件加载全部报 `-22`，音频与视频同时失效）。
 - 手写笔通道未实现。
 - `qcom-apm` 开机报 `CMD timeout`（声卡仍能注册）。
 - RTC 开机时间错误，依赖 NTP 纠正。
