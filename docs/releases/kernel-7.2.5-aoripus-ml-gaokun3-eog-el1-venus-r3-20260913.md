@@ -56,7 +56,24 @@ r3 装机后的复核结果见 §2.4。
 
 ### 2.4 r3 装机复核（2026-09-13）
 
-（装机后填写：`uname -r` / EL1 / venus / 触屏绑定 / `idle_state` 60 s 进入空闲 / 触摸唤醒）
+装机方式：`scripts/gk-install-kernel.sh --kver 7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3 … --oneshot`，
+**只新增一个 BLS 条目**（`loader.conf` 的 `default` 仍是原 `7.1.0-rc3-el2` 条目）。
+
+| 项 | 结果 |
+|---|---|
+| 内核串 | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3`（**无 `+`**）✅ |
+| 启动级别 | `CPU: All CPU(s) started at EL1` ✅ |
+| venus | `Quadcomm Venus video decoder` = `/dev/video32`、encoder = `/dev/video33` ✅ |
+| 触屏 | `Himax Capacitive TouchScreen` 绑定，`msmgpio 175` IRQ 正常计数 ✅ |
+| 空闲策略默认值 | `idle_enter_frames=7200`、`idle_poll_ms=30` ✅ |
+| 空闲 IRQ 速率（面板点亮、无人触摸） | **23.1 Hz**（对照：策略关闭时 120 Hz）✅ |
+| 空闲 kthread CPU | **0.50%**（单核；对照 2.00%）✅ |
+| 60 s 触发 | 开机后 `dmesg`：`idle: one frame every 30ms after 7200 contact-free frames`（t=109 s，含开机初始化），`idle_state` 显示 `active=1` ✅ |
+| 触摸唤醒 | 见 §2.1（r3-dev 同路径实测）；r3 上的复核见下 |
+
+> r3 上的唤醒复核：触摸屏幕后应出现 `himax-spi spi0.0: idle exit: touch after 30ms sampling`，
+> 且 IRQ 速率短暂回到 ~120 Hz。**若该行未出现，请勿使用本内核**并立即回滚
+> （`gk-install-kernel.sh --kver … --uninstall`）。
 
 ### 2.2 ★ 为什么不采用"让 IC 自己睡"（AFE `0x0A`）
 
