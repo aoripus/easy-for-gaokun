@@ -1,0 +1,172 @@
+# ============================================================================
+# easy-for-gaokun — 内核发布产物的自动校验
+#
+# 触发：① GitHub Release 被发布（published）；② 手动 workflow_dispatch（带 tag 输入）。
+#
+# ★ 本项目的 Release 有**两类**（见 README 的「构建产物与发布」）：
+#   ① 内核产物 tag：^kernel-[0-9].*-\d{8}$
+#      例 kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913
+#   ② 源码里程碑 tag：^v[0-9]+\.[0-9]+\.[0-9]+$（例 v0.1.0，GitHub 自动生成源码包）
+#   两类都必须有对应的 docs/releases/<tag>.md；只有内核产物才要求内核资产清单。
+#   既不属于这两类的 tag 一律报错（不静默通过）。
+#
+# 校验内容：
+#   ① tag 命名规范（见上）
+#   ② 仓库内存在 docs/releases/<tag>.md 发布说明
+#   ③ 内核 tag：核对 README §7 / docs/kernel-7.2.5-el1-build.md §8 约定的资产清单，
+#      缺资产以 ::warning:: 报出
+#   ④ 若 release 附带 sha256sums.txt，则下载全部资产并 `sha256sum -c` 校验
+#
+# 本工作流不需要实机，也不修改任何东西（permissions: contents: read）。
+# ============================================================================
+
+name: 校验内核发布产物
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 待校验的 Release tag（例 kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913）
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  verify-release:
+    name: 校验 tag / 发布说明 / 校验和
+    runs-on: ubuntu-24.04
+    env:
+      # release 事件用 release.tag_name；手动触发用输入的 tag
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # ----------------------------------------------------------------------
+      # ① tag 命名规范（并判定这是哪一类 Release）
+      # ----------------------------------------------------------------------
+      - name: ① 校验 tag 命名规范
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG:-}" ]; then
+            echo "::error::未能取得 tag（workflow_dispatch 必须填写 tag 输入）"
+            exit 1
+          fi
+
+          kernel_re='^kernel-[0-9].*-[0-9]{8}$'
+          milestone_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if printf '%s' "$TAG" | grep -Eq "$kernel_re"; then
+            echo "OK：tag '$TAG' 是内核产物 tag，命名合法"
+            echo "IS_KERNEL=1" >> "$GITHUB_ENV"
+          elif printf '%s' "$TAG" | grep -Eq "$milestone_re"; then
+            echo "::notice::tag '$TAG' 是源码里程碑（vX.Y.Z），只校验发布说明，不核对内核资产清单"
+            echo "IS_KERNEL=0" >> "$GITHUB_ENV"
+          else
+            echo "::error::tag '$TAG' 不属于本项目两类 Release 中的任何一类"
+            echo "        内核产物 tag 应形如：kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913"
+            echo "        源码里程碑 tag 应形如：v0.1.0"
+            echo "        内核 tag 的正则：^kernel-[0-9].*-\d{8}$"
+            exit 1
+          fi
+
+      # ----------------------------------------------------------------------
+      # 检出该 tag 的源码树（发布说明必须与 tag 在同一个提交上）
+      # ----------------------------------------------------------------------
+      - name: 检出该 tag 的源码
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      # ----------------------------------------------------------------------
+      # ② 发布说明必须存在（两类 Release 都要求）
+      # ----------------------------------------------------------------------
+      - name: ② 校验 docs/releases/<tag>.md 存在
+        run: |
+          set -euo pipefail
+          notes="docs/releases/${TAG}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::缺少发布说明 $notes —— tag 与文件名必须逐字一致"
+            echo "docs/releases/ 现有文件："
+            ls -1 docs/releases/ 2>/dev/null || true
+            exit 1
+          fi
+          echo "OK：$notes 存在（$(wc -c < "$notes") 字节）"
+
+      # ----------------------------------------------------------------------
+      # ③ 资产清单（内核 tag 才核对约定产物）+ ④ 校验和
+      # ----------------------------------------------------------------------
+      - name: ③ 校验资产清单与 sha256sums.txt
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/release"
+          mkdir -p "$work"
+
+          if ! gh release view "$TAG" --json assets --jq '.assets[].name' > "$work/assets.txt"; then
+            echo "::error::读不到 release '$TAG' 的资产清单（tag 存在但没有对应的 GitHub Release？）"
+            exit 1
+          fi
+
+          echo "release '$TAG' 的资产清单："
+          sed 's/^/  - /' "$work/assets.txt"
+
+          # 按 shell 通配符判断资产是否存在
+          have() {
+            local pat="$1" name
+            while IFS= read -r name; do
+              # shellcheck disable=SC2254  # 这里需要 case 的模式匹配语义
+              case "$name" in
+                $pat) return 0 ;;
+              esac
+            done < "$work/assets.txt"
+            return 1
+          }
+
+          if [ ! -s "$work/assets.txt" ]; then
+            if [ "${IS_KERNEL}" = "1" ]; then
+              echo "::warning::release '$TAG' 没有任何资产（内核产物应附带 Image / 模块包 / DTB / sha256sums.txt 等）"
+            else
+              echo "源码里程碑不带资产属正常（GitHub 自动生成源码包）"
+            fi
+            exit 0
+          fi
+
+          # 内核产物应包含的资产（见 README §7 与 docs/kernel-7.2.5-el1-build.md §8）
+          if [ "${IS_KERNEL}" = "1" ]; then
+            missing=0
+            for pat in Image 'modules-*.tar.zst' 'config-*' 'System.map-*' 'sc8280xp-*.dtb' sha256sums.txt BUILD-PROVENANCE.md; do
+              if have "$pat"; then
+                echo "OK   资产存在：$pat"
+              else
+                echo "::warning::release '$TAG' 缺少约定资产：$pat"
+                missing=$((missing + 1))
+              fi
+            done
+            if [ "$missing" -ne 0 ]; then
+              echo "::warning::共 $missing 类约定资产缺失（对照 README §7 的产物清单与 BUILD-PROVENANCE.md）"
+            fi
+          fi
+
+          if ! have sha256sums.txt; then
+            if [ "${IS_KERNEL}" = "1" ]; then
+              echo "::warning::release '$TAG' 未附带 sha256sums.txt，跳过 sha256sum -c 校验"
+            else
+              echo "该 release 未附带 sha256sums.txt，跳过校验和"
+            fi
+            exit 0
+          fi
+
+          echo "下载全部资产到 $work/assets 并校验……"
+          gh release download "$TAG" --dir "$work/assets"
+          ls -1 "$work/assets"
+          (
+            cd "$work/assets"
+            sha256sum -c sha256sums.txt
+          )
+          echo "OK：sha256sums.txt 校验通过"
