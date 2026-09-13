@@ -42,12 +42,14 @@ fi
 # 常量
 # =============================================================================
 
-PROJECT_NAME="easy-for-gaokun"
-PROJECT_URL="https://github.com/aoripus/easy-for-gaokun"
+# 项目元数据常量。它们供脚本、报告与子进程读取（导出以便使用方与子进程可见），
+# 因此在「当前调用点没有引用」时也属预期。
+export PROJECT_NAME="easy-for-gaokun"
+export PROJECT_URL="https://github.com/aoripus/easy-for-gaokun"
 
 # 本项目只支持 gaokun3 专用内核；官方 Ubuntu 内核不含该版本号的补丁与 DTB。
-SUPPORTED_KERNEL_SUBSTR="gaokun3"
-SUPPORTED_ARCH="aarch64"
+export SUPPORTED_KERNEL_SUBSTR="gaokun3"
+export SUPPORTED_ARCH="aarch64"
 
 # CPU 最高频率红线（单位 kHz，cpufreq 的 cpuinfo_max_freq 即以此为单位的整数）。
 #   * 2022 性能版（8cx Gen 3 满血）：大核簇上限约 2 995 200 kHz ≈ 3.0 GHz
@@ -56,7 +58,7 @@ SUPPORTED_ARCH="aarch64"
 # 两侧都留有充足余量，既不会把满血版误判为降频版，也不会放过降频版。
 # 注意：仅凭型号字符串（如 GK-W76 / GK-W7X）无法区分 2022 性能版与 2023 版，
 #       频率与设备树才是决定性判据。
-EXPECTED_CPU_MAX_KHZ_MIN=2900000
+export EXPECTED_CPU_MAX_KHZ_MIN=2900000
 
 # =============================================================================
 # 结果统计（供 result_row / result_summary 使用）
