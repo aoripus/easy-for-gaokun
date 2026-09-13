@@ -1,11 +1,11 @@
 # 指纹识别：可行性调查与结论
 
-> **一句话结论**：本机指纹是 **FocalTech FTE7001**，挂在 **SPI** 上，但那条 SPI 由
-> **Qualcomm 安全世界（QSEE/TEE）独占**：Windows 的非安全侧驱动只拿到一个
-> **GPIO 中断连接**，没有任何 SPI/I²C 总线资源；传感器取图、特征提取与模板比对
+> 本机指纹为 **FocalTech FTE7001**，连接在 **SPI** 上，该 SPI 由
+> **Qualcomm 安全世界（QSEE/TEE）独占**：Windows 非安全侧驱动只获得一个
+> **GPIO 中断连接**，没有 SPI/I²C 总线资源；传感器取图、特征提取与模板比对
 > 全部在签名 trustlet `fingerpr.mbn` 内完成。
-> 因此在 Linux 上**无法通过常规内核驱动路线使用这颗指纹**——这不是"还没人写驱动"，
-> 而是**非安全世界根本拿不到那条总线**，且算法在 TEE 里。
+> 因此在 Linux 上**该指纹不可通过常规内核驱动路线使用**：原因不是缺少驱动实现，
+> 而是**非安全世界无法获得该总线的资源分配**，且算法位于 TEE 内。
 
 ---
 
@@ -197,7 +197,7 @@ GPIO_INT   HIMX0001    THP SPI Device Driver                        0x01   0x02 
 SPI        HIMX0001    THP SPI Device Driver                        0x02   0x02   37
 SPI        HIMX0002    THP SPI Device Driver                        0x02   0x02   39
 UART       QCOM066B    Qualcomm(R) Bluetooth UART Transport Driver  0x02   0x03   44
-★ GPIO_INT FTE7001     FocalTech Fingerprint reader                 0x01   0x02   10
+  GPIO_INT FTE7001     FocalTech Fingerprint reader                 0x01   0x02   10
 
 Class/Type 分布：0x01/0x02 (GPIO_INT) 14 个 · 0x02/0x02 (SPI) 2 个 · 0x02/0x03 (UART) 1 个
 ```
