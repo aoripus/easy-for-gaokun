@@ -1,6 +1,7 @@
 # patches/iris-el2 —— IRIS 视频驱动在 EL2 下的两处修复
 
 > **元数据**（字段定义见 [`patches/README.md`](../README.md)）
+>
 > - **用途**：IRIS 视频驱动在 EL2 下的适配 —— 分配 `qcom_scm_pas_context` 并置 `use_tzmem`，
 >   改用 `qcom_scm_pas_prepare_and_auth_reset()`，让 SHM bridge 由 Linux 自己建立
 > - **基线 / Base**：`v7.2-rc2` 时期的树（`drivers/media/platform/qcom/iris/*` 与 IRIS 设备树节点）
@@ -12,6 +13,7 @@
 >   —— 即本补丁只解决了这条路线的一半
 > - **回滚**：本序列不进入发布内核；删除构建目录即可，目标机不受影响
 
+---
 
 > ## ⚠️ 2026-09-13 更正：**方向已变——本项目现在走 EL1 + venus，本目录的补丁不再使用**
 >
