@@ -1,0 +1,31 @@
+# ============================================================================
+# easy-for-gaokun — yamllint 配置
+#
+# 覆盖 `.github/**` 的命令、工作流与 issue 模板。GitHub Actions 需要
+# `on:` 这种写法，因此 truthy 必须放行 on/off。
+# ============================================================================
+
+extends: default
+
+rules:
+  line-length:
+    max: 200
+    level: warning
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  truthy:
+    allowed-values: ['true', 'false', 'on', 'off']
+  document-start: disable
+  brackets:
+    max-spaces-inside: 1
+  braces:
+    max-spaces-inside: 1
+  # 中文说明里常见很长的单行 description，不做强制折行
+  key-ordering: disable
+
+ignore: |
+  downloads/
+  Drv/
+  Recovery/
+  node_modules/
