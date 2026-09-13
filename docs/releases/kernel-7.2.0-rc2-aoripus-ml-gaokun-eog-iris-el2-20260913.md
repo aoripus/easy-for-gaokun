@@ -13,7 +13,7 @@
 
 ## 已知风险
 
-IRIS 与 Venus 使用同一套 PAS 调用序列（`qcom_scm_pas_auth_and_reset`、`qcom_scm_mem_protect_video_var`），而本机 `qcom_scm_pas_init_image()` 已确认会失败。若启动后 probe 仍报 `auth and reset failed`，失败点在 SCM/PAS，换 media 驱动不改变该通路是否可用。详见 `docs/build-kernel-iris.md` §7.1。
+IRIS 与 Venus 使用同一套 PAS 调用序列（`qcom_scm_pas_auth_and_reset`、`qcom_scm_mem_protect_video_var`），而该通路在 EL2 下的可用性取决于 `patches/el2/*` 中的 self-owner 与 `qcom,broken-reset` 改动，本产物已包含该组补丁。若启动后 probe 仍报 `auth and reset failed`，失败点即在 SCM/PAS。详见 `docs/build-kernel-iris.md` §7.1。
 
 ## 变更
 
