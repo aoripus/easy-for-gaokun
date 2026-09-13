@@ -37,7 +37,7 @@
 
 ### 已知问题
 
-- **视频硬解在 EL2 下确定不可用，且不是软件可修复的问题。** 失败表现为
+- **视频硬解：本机尚未打通；此前"EL2 下不可修复"的判断已被推翻。** 失败表现为
   `iris_vpu_boot_firmware()` 返回 `-62`（ETIME）：`CTRL_STATUS` 轮询 1000 次恒为 `0`。
   2026-09-13 做了第二轮的**逐寄存器**验证，把"缺陷在驱动/设备树/固件选择"的可能性全部排除：
 
@@ -62,6 +62,26 @@
   设备树侧已无改进空间：本项目的 iris 节点与上游 v7 系列（2026-05）**逐属性一致**
   （含 `iommus = <&apps_smmu 0x2a00 0x400>`），而该系列本身只含 DT 与 binding、不含驱动改动。
   详见 `patches/iris-el2/README.md`。
+
+  **2026-09-13 第三轮更正 —— 上述"EL2 下不可修复"的结论已被推翻。**
+  Steev Klimaszewski 在 Lenovo ThinkPad X13s（**同为 SC8280XP**）上实测 iris 通过：
+  `v4l2-compliance` 48/48、真实播放正常，且**明确包括 EL2**。同为该 SoC、同为 EL2，
+  X13s 能跑而本机不能 —— 这是**设备特有的问题，不是架构性的**；前一轮把"PAS 调用成功但核心
+  不起"归因为 EL2 固有缺陷属过度归因（上游 `qcom,broken-reset` 那段话讲的是 DSP 的
+  remoteproc，不能外推到视频核）。
+
+  同轮新增的确证事实：
+
+  | 事实 | 依据 |
+  |---|---|
+  | 本机固件是 **Gen1**，故 `sm8250_data` 是正确选择 | 上游 master `iris_firmware.c` 的判定算法（`video-firmware.1.x` 即 Gen1）比对 `QC_IMAGE_VERSION_STRING=video-firmware.1.1-…`；Xilin Wu 的 `sc8280xp_data` 与 `sm8250_data` 唯一功能差异是多一个 gen2 描述符 |
+  | TrustZone **活着且在校验** | 探针模块：`pas_shutdown(9)=0`，不存在的 ID 一律 `-22`，未加载镜像时 `auth_and_reset(9)=-22` |
+  | TZ **声称**支持视频 PAS 并报告成功，硬件却不动 | `pas_supported(9)=yes`；镜像已加载时 `auth_and_reset(9)=0` |
+  | **`MP_VIDEO_VAR` 被本机 TZ 拒绝**，是与 X13s 的关键差异 | 6 组参数全部 `-5`；`SET_CP_POOL_SIZE` 亦 `-22`，同服务的 `IOMMU_SECURE_PTBL_SIZE` 却返回 0 |
+  | 上游已知低 IOVA 区间缺陷并已有 DT 级修复 | `[PATCH 00/22] Restrict lower IOVA range for Venus and Iris VPUs`（含 `sc8280xp: Reserve low IOVA range for Iris`） |
+
+  新增可复现工具 `tools/pas-probe/`（独立探针模块，向 TrustZone 直接问询并逐项对比寄存器）。
+  下一步优先级：查清 `MP_VIDEO_VAR` 被拒的原因，并补上低 IOVA 保留。
 - 实验 iris 驱动时需先 `blacklist qcom_iris`、系统起来后再手动 `modprobe`：开机阶段的
   反复 probe 超时曾把显示子系统探针拖到 `-110` 并黑屏。**既然硬解结论已定，建议把这条
   blacklist 长期保留**，避免每次开机都白跑一轮探针并牵连 MDSS。
