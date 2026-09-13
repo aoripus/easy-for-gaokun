@@ -135,9 +135,21 @@ work：idle_sampling = 1；enable_irq()   ← 只放行"一帧"
 | 触屏 IRQ 速率 | **120.0 Hz** | **22.9 Hz** | −81% |
 | 触屏 kthread CPU | **2.00%**（单核） | **0.50%**（单核） | −75% |
 | IC 是否继续扫描 | 是 | 是（未改变） | — |
-| 首触延迟 | 一帧（≈8.3 ms） | ≈ 采样周期（默认 30 ms）+ 一帧 | 待用真手指量化 |
+| 首触延迟 | 一帧（≈8.3 ms） | ≈ 采样周期（默认 30 ms）+ 一帧 | **真手指实测通过** |
 
 > 实测 22.9 Hz 而非理论的 33 Hz：work 处理完一帧后才重排下一次，实际周期 ≈ 43 ms。
+
+**唤醒路径已用真手指验证**【已核实】：策略开启（`idle_enter_frames=240`、`idle_poll_ms=30`）后，
+用户实际点按屏幕时 `dmesg` 出现
+
+```
+himax-spi spi0.0: idle exit: touch after 30ms sampling
+…
+himax-spi spi0.0: idle: one frame every 30ms after 240 contact-free frames
+```
+
+即：采样帧上检出真实触点 → 结束空闲并保持中断模式（触点由正常中断路径上报）→
+松手 240 帧（≈2 s）后重新进入空闲。**全程无需 AFE 命令、无需芯片重初始化。**
 
 **边界与回滚**：面板熄灭/点亮、`inplace_reset`、驱动卸载都会取消 work 并清状态；
 策略默认关闭（`idle_enter_frames=0`），`idle_poll_ms` 可调；安装/回滚走 `scripts/gk-install-kernel.sh`。
