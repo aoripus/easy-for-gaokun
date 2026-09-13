@@ -207,7 +207,7 @@ jobs:
 
       # ⑤ 机密扫描。公开仓库用官方 action 即可（无需 GITLEAKS_LICENSE）
       - name: ⑤ 机密扫描（gitleaks）
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
