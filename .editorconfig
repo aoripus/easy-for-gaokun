@@ -1,0 +1,48 @@
+# ============================================================================
+# easy-for-gaokun — EditorConfig
+#
+# 开发机可能是 Windows，目标机是 Linux/aarch64。CRLF 会让 shell 脚本在目标机上
+# 直接无法执行（`/bin/bash^M: bad interpreter`），也会污染设备树与补丁，
+# 因此仓库内一律 LF（.gitattributes 已强制，本文件是编辑器侧的同一份约定）。
+# ============================================================================
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# --- Markdown：行尾两个空格是硬换行语法，不能裁 ---
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+indent_size = 2
+
+# --- shell：Bash 5，见 CONTRIBUTING「Shell 脚本要求」 ---
+[*.{sh,bash,zsh}]
+indent_size = 2
+
+# --- 配置与数据 ---
+[*.{yml,yaml,json,toml,conf,cfg,ini}]
+indent_size = 2
+
+# --- 设备树 ---
+[*.{dts,dtsi}]
+indent_size = 4
+
+# --- 内核补丁：上游邮件格式，逐字节敏感 ---
+# 既不裁行尾空白（补丁上下文行可能带空白），也不强加末尾换行。
+[*.{patch,diff}]
+trim_trailing_whitespace = false
+insert_final_newline = false
+indent_size = 4
+
+# --- 内核源码（若在树外调试时把片段贴进仓库） ---
+[*.{c,h}]
+indent_size = 8
+
+[Makefile]
+indent_style = tab
