@@ -1,5 +1,30 @@
 # 视频硬件解码：现状、根因与可行路径
 
+> ## ⚠️ 2026-09-13 更正：**硬解已打通；根因不是驱动选型，而是启动级别（EL1 vs EL2）**
+>
+> 本文下方的全部结论（"硬解不可用"、"硬件是 IRIS 所以 venus 起不来"）**已被实机推翻**，
+> 保留作历史记录。**以本节为准。**
+>
+> **实测事实**（本项目自编 `7.2.5-aoripus-ml-gaokun-eog-el1+`，详见
+> [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913.md`](releases/kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913.md)）：
+>
+> | 事实 | 证据 |
+> |---|---|
+> | **EL1 下 venus 正常工作** | `/dev/video33 = qcom-venus-decoder`；支持 H264/VP8/VP9/HEVC/MPEG-2；mpv 实测 `[ffmpeg/video] h264_v4l2m2m: Using device /dev/video33` |
+> | **EL2 下同一驱动必然失败** | `error -22 initializing firmware` → `probe with driver qcom-venus failed with error -22`（即本文原来记录的现象） |
+> | 原因 | 上游 venus/iris 都按 **EL1** 写：`qcom_mdt_load(…, NULL)` 分配固件缓冲 + 裸调 `qcom_scm_pas_auth_and_reset()`；EL1 下这两步由 EL2 的 hypervisor 代管，bare-metal EL2 下无人代管 |
+> | 第二道坎（EL2 特有） | 上游 EL2 补丁集原文：*"可以认证并启动固件，但 **remoteproc 永不脱离复位**"* —— DSP 有 `qcom,broken-reset`/attach 兜底，**视频核没有 attach 可言** |
+>
+> ⇒ **结论改为：GK-W76 的视频硬解在 EL1 下可用（venus 路线），在 EL2 下不可用。**
+> 代价是 EL1 没有 `/dev/kvm`（硬解与 KVM 目前互斥）。
+> 构建配方与门禁见 [`docs/kernel-7.2.5-el1-build.md`](kernel-7.2.5-el1-build.md)。
+>
+> **切换方式**：EL1/EL2 只差 BLS 条目里的 `devicetree`（`sc8280xp-huawei-gaokun3.dtb` ↔ `…-el2.dtb`）；
+> `slbounce` 会嗅探设备树自行决定。**切勿**通过移除 `EFI/systemd/drivers/` 下的 slbounce/qebspil
+> 来"回退到 EL1"——那会破坏引导链导致黑屏。
+
+---
+
 > 本文记录 GK-W76 上**视频硬件解码不可用**的完整归因分析。
 > 所有结论均标注来源与置信度；【已核实】表示直读第一手源码或原作者邮件。
 

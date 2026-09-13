@@ -1,5 +1,22 @@
 # patches/iris-el2 —— IRIS 视频驱动在 EL2 下的两处修复
 
+> ## ⚠️ 2026-09-13 更正：**方向已变——本项目现在走 EL1 + venus，本目录的补丁不再使用**
+>
+> 实机结果（详见 [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913.md`](../../docs/releases/kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913.md)）：
+>
+> - 以 **EL1** 启动后，**venus** 驱动直接可用：`/dev/video33 = qcom-venus-decoder`，
+>   mpv 实测走 `/dev/video33` 硬解；
+> - **bare-metal EL2 下视频核无法工作**：即便用本目录补丁跨过 `-22 initializing firmware`
+>   这道坎，视频核仍不会脱离复位（上游 EL2 补丁集原文："可认证可启动，
+>   但 **remoteproc 永不脱离复位**"；DSP 可 attach，视频核没有 attach 可言）；
+> - 因此本项目改为 **EL1 + venus** 路线，内核实测见
+>   [`docs/kernel-7.2.5-el1-build.md`](../../docs/kernel-7.2.5-el1-build.md)。
+>
+> **本文下方的分析与实验记录仍然有效且值得保留**（它们精确定位了 EL2 的两道坎、
+> 以及 `MP_VIDEO_VAR`/TZ 侧的诸多事实），但**最终结论"本机视频硬解不可用"已被推翻** ——
+> 准确表述是：**EL2 下不可用，EL1 下可用**。
+
+
 `0001-media-iris-use-tzmem-and-ctx-aware-auth-for-EL2.patch` 修改
 `drivers/media/platform/qcom/iris/`，让视频固件在 EL2（无 hypervisor）下能够被认证和启动。
 
