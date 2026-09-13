@@ -1,0 +1,121 @@
+name: 其他硬件变体
+description: 你不是 2022 性能版，或想报告 MateBook E Go 系列的其他变体（本项目仅支持 2022 性能版）
+title: "[变体] "
+labels:
+  - hardware-variant
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 先说清楚：本项目只支持一个变体
+
+        | 变体 | SoC / 设备树 | 支持状态 |
+        |------|--------------|----------|
+        | **MateBook E Go 2022 性能版** | Snapdragon 8cx Gen 3 / SC8280XP / `gaokun3` | ✅ **唯一支持** |
+        | MateBook E Go 2022 LTE 版 | Snapdragon 8cx Gen 2 / SC8180X / `gaokun2` | ❌ 不支持 |
+        | MateBook E Go 2023 版 | 8cx Gen 3 **降频版**（约 2.69 GHz） | ❌ 不支持 |
+
+        本仓库的设备树引脚配置、面板参数、触屏接口模式与双系统安装步骤，全部来自
+        **GK-W76（`gaokun3`）** 的实机验证，**不适用于其他变体**，也没有在其他变体上验证过。
+        因此：**本模板不是功能请求通道，而是变体情报通道** ——
+        欢迎提供实测数据（设备树、频率、外设枚举、Windows 侧信息），
+        这些数据可能是有价值的参考，但**本项目当前不会为其他变体提供支持**。
+
+        > `GK-W76` 这个市场型号字符串**不是可靠判据**：目标机的 DMI 产品名实际读作 `GK-W7X`，
+        > 设备树 `model` 只写 `Matebook E Go`；电商页面也存在把 2023 版标成 `GK-W76` 的情况。
+        > 判据只有设备树 `compatible` 与大核最高频率。
+
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已阅读上面的支持范围说明，理解本项目当前**不支持**我这台机器
+          required: true
+        - label: 我仍愿意提供实测数据，供参考与后续决策使用
+          required: true
+
+  - type: dropdown
+    id: variant
+    attributes:
+      label: 你的机器属于哪个变体
+      options:
+        - 2022 LTE 版（Snapdragon 8cx Gen 2 / SC8180X / gaokun2）
+        - 2023 版（8cx Gen 3 降频，大核最高频率约 2.69 GHz）
+        - 不确定，需要协助判定
+        - 其他 MateBook E Go 家族机型（请在下方说明）
+    validations:
+      required: true
+
+  - type: textarea
+    id: device_tree_compatible
+    attributes:
+      label: 设备树 compatible
+      description: |
+        运行下面这条命令并粘贴完整输出：
+
+        ```bash
+        tr '\0' '\n' < /proc/device-tree/compatible
+        ```
+      placeholder: |
+        huawei,gaokun2
+        qcom,sc8180x
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: cpu_max_freq
+    attributes:
+      label: 大核最高频率
+      description: |
+        运行下面这条命令并粘贴输出（决定 2022 性能版与 2023 版的分界）：
+
+        ```bash
+        cat /sys/devices/system/cpu/cpu4/cpufreq/cpuinfo_max_freq
+        ```
+      placeholder: "例如 2690000"
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: model_strings
+    attributes:
+      label: 机型/主板字符串
+      description: |
+        下面三条命令的输出（注意：这些字符串**不能单独作为判据**，仅供交叉核对）：
+
+        ```bash
+        tr -d '\0' < /proc/device-tree/model
+        cat /sys/class/dmi/id/product_name
+        cat /sys/class/dmi/id/board_name
+        ```
+      placeholder: |
+        Matebook E Go
+        GK-W7X
+        GK-W7X-PCB
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: intent
+    attributes:
+      label: 你的目的 / 想提供什么
+      description: |
+        例如：想确认自己的机器是否属于支持范围；愿意提供实测数据（外设枚举、Windows 驱动信息、
+        设备树 dump）；希望本项目把该变体纳入支持（请说明你能提供的实机验证条件）。
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 附加实测数据（可选）
+      description: |
+        例如完整的 `sudo ./scripts/00-preflight.sh` 输出、`uname -a`、
+        `sudo ./scripts/90-report.sh` 的报告、外设枚举结果。
+        **注意：不要粘贴凭据或个人敏感信息。**
+    validations:
+      required: false
