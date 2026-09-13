@@ -112,7 +112,7 @@ r3 已补上；下表是补上之后的实测。
 
 ## 5. r3 空闲策略：中断门控采样（interrupt-gated sampling）
 
-```
+```text
 连续 idle_enter_frames 帧（默认 7200 ≈ 60 s）无"已上报触点"
         ↓
 idle_active = 1；disable_irq()；每 idle_poll_ms（默认 30 ms）排一次 delayed_work
@@ -153,7 +153,7 @@ work：idle_sampling = 1；enable_irq()   ← 只放行"一帧"
 **唤醒路径已用真手指验证**【已核实】：策略开启（`idle_enter_frames=240`、`idle_poll_ms=30`）后，
 用户实际点按屏幕时 `dmesg` 出现
 
-```
+```text
 himax-spi spi0.0: idle exit: touch after 30ms sampling
 …
 himax-spi spi0.0: idle: one frame every 30ms after 240 contact-free frames
