@@ -1,0 +1,5 @@
+# patches/touch-spi-mode/series —— 本目录补丁的应用顺序
+#
+# 只有一条补丁，顺序无歧义；列在 series 里是为了让 CI 的「series 与文件一一对应」
+# 检查覆盖到本序列。
+0001-arm64-dts-qcom-sc8280xp-huawei-gaokun3-select-SPI-mode-for-touchscreen.patch
