@@ -16,7 +16,6 @@
 > 以及 `MP_VIDEO_VAR`/TZ 侧的诸多事实），但**最终结论"本机视频硬解不可用"已被推翻** ——
 > 准确表述是：**EL2 下不可用，EL1 下可用**。
 
-
 `0001-media-iris-use-tzmem-and-ctx-aware-auth-for-EL2.patch` 修改
 `drivers/media/platform/qcom/iris/`，让视频固件在 EL2（无 hypervisor）下能够被认证和启动。
 
@@ -89,6 +88,7 @@
 > | expC | 把所有厂商变体写过、而 vpu2 路径从不触碰的寄存器全试一遍：`0xB0078`、`0xE0028`(SPARE)、`0xE0018`(SW_RESET)、`0xE0020`(NOC_CLK)、`0xA0174`、`0xFF008`，外加 `CPU_CS_X2RPMH ← 0x3` | 六个寄存器**本来就都是 0**，置位后仍 `CTRL_STATUS=0x0` |
 >
 > 同时排除了两个"代码路径差异"：
+>
 > - `iris_vpu3_ops` / `iris_vpu33_ops` 用的 `power_on_hw` / `power_on_controller` 与本机路径**完全相同**（`iris_vpu_common.c` 里同一对函数），因此上电代码不是差异点；
 > - `program_bootup_registers`（只写 `0xB0078=1`）与 `iris_vpu_set_preset_registers`（只把 `0xB0088` 写 0）在我们机器上要么已由公共路径调用、要么目标寄存器本来就已是该值。
 >
