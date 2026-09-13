@@ -57,7 +57,8 @@ pin_owner() {
 
 # 内核配置项的值（y / m / "is not set"）。
 kernel_config() {
-	local f="/boot/config-$(uname -r)" v
+	local f v
+	f="/boot/config-$(uname -r)"
 	if [ -r "${f}" ]; then
 		v="$(awk -F= -v k="$1" '$1 == k { print $2; exit }' "${f}")"
 		if [ -n "${v}" ]; then printf '%s\n' "${v}"; return 0; fi
@@ -121,7 +122,7 @@ do_diagnose() {
 	local owner
 	owner="$(pin_owner 185)"
 	result_row "gpio185 占用者" PASS "${owner:-未找到（需要 root 与 debugfs）}"
-	log_warn "注意：144–199 号引脚绝大多数都是 UNCLAIMED，所以“未被占用”不能证明它是指纹的引脚。"
+	log_warn "注意：144–199 号引脚绝大多数都是 UNCLAIMED，所以「未被占用」不能证明它是指纹的引脚。"
 	log_warn "真实用途需要在 ACPI DSDT 中确认（见 docs/fingerprint.md §8.3）。"
 
 	result_section "⑥ 下一步"
