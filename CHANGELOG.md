@@ -82,6 +82,27 @@
 
   新增可复现工具 `tools/pas-probe/`（独立探针模块，向 TrustZone 直接问询并逐项对比寄存器）。
   下一步优先级：查清 `MP_VIDEO_VAR` 被拒的原因，并补上低 IOVA 保留。
+
+  **2026-09-13 第四轮：所有 Linux 侧方向已走完，结论定型。**
+  把 Windows 驱动 `qcdxkm8280.sys` 的 TrustZone 接口逆向出来后（详见
+  `docs/windows-video-tz-interface.md`）确认了三点：
+
+  1. Windows 驱动视频核走的是 **QTEE（TrEE）IOCTL**，不是 Linux iris 用的 SIP SMC；
+     且它在视频核初始化时调用了 **Linux 侧完全没有**的 TZ 子系统状态函数
+     （`TZ_SUBSYS_STATE_RESUME`、`TZ_SUBSYS_STATE_VENUS_RESTORE_THRESHOLD`，subsys = 9）。
+  2. **CP 参数不是原因**：连同从 Windows 逆向出的两套静态参数表共 6 组，在本机全部
+     返回 TZ 的 `-EIO`；`mpvv` 在"冷状态"下作为模块的第一个 SCM 调用同样失败，
+     说明与顺序/状态无关。
+  3. **经 `qcomtee` 复刻这条路被源码否决**：`drivers/tee/qcomtee/core.c` 里
+     `op` 被掩到 16 位（`0x02000C08` 当场 `-EINVAL`），且"只能调用 QTEE 托管的对象"，
+     即需要**签名 TA**。（本机内核 `# CONFIG_TEE is not set`，`qcomtee` 驱动未编；
+     该项可修，但修好也过不了上述两道门。）
+
+  **最终结论**：本机视频硬解不可用，根因是**该设备的 TrustZone 把视频子系统的安全世界支持
+  （CP 内存保护 + 子系统状态机）实现在 QTEE + 签名 TA 之后**，Linux 侧够不到。
+  注意这**不是** EL2 的架构限制 —— Lenovo X13s（同为 SC8280XP）已在 EL2 下跑通。
+  替代方案为软件解码，本机实测 1080p30 H.264 仅需约 0.5 个大核（14.2× 余量），
+  详见 `docs/software-video-decode.md`。
 - 实验 iris 驱动时需先 `blacklist qcom_iris`、系统起来后再手动 `modprobe`：开机阶段的
   反复 probe 超时曾把显示子系统探针拖到 `-110` 并黑屏。**既然硬解结论已定，建议把这条
   blacklist 长期保留**，避免每次开机都白跑一轮探针并牵连 MDSS。
