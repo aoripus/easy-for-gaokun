@@ -15,12 +15,14 @@
 | 音频 | 声卡 `SC8280XP-HUAWEI-GAOKUN3` 注册；`SpkrLeft/Right PA Volume = 17` |
 | 触屏 | `gpio174 : out low`，Himax 中断计数持续增长 |
 | remoteproc | slpi / adsp / cdsp 均为 `attached`：EL2 下不做复位，接管引导固件已启动的实例 |
-| 视频硬解 | **不可用**，失败点已定位，见下节 |
+| 视频硬解 | **不可用**（经逐寄存器验证为 EL2 下的不可修复项，见下节） |
 
 本机是标准 UEFI 平台：有固件设置界面、可从 USB 启动、ESP 是普通 FAT32 分区。安装时保留原
 默认条目即可；即使引导项写错，也能用 U 盘启动挂载 ESP 修复。
 
-## 视频硬解的状态：已定位到 EL2 的复位语义
+## 视频硬解：结论为「EL2 下不可用，且不可修复」
+
+**本机是标准 UEFI 平台**，安装与回滚都很简单；**但视频硬解这一项买不到，原因是内核运行在 EL2。**
 
 固件启动要跨过四道关卡，本产物停在第四道：
 
@@ -28,29 +30,54 @@
 |---|---|---|
 | `qcom_scm_pas_init_image` | 通过 | 需要 `patches/iris-el2/` 的 tzmem/ctx 修复，否则报 `-22` |
 | `qcom_scm_pas_auth_and_reset` | 通过 | 需要改用 `qcom_scm_pas_prepare_and_auth_reset()`：EL2 下 SHM bridge 必须由 Linux 自建 |
-| `qcom_scm_mem_protect_video_var` | `-5`（EIO） | 只服务于 DRM 内容保护；改为非致命后不影响后续步骤 |
+| `qcom_scm_mem_protect_video_var` | `-5`（EIO） | 只服务于 DRM 内容保护；**上游在此处会直接 `pas_shutdown()` 并中止 probe**，本产物改为非致命后继续 |
 | `iris_vpu_boot_firmware` | **`-62`（ETIME）** | 驱动写 `CTRL_INIT` 后轮询 1000 次（约 110 ms），`CTRL_STATUS` 恒为 `0` |
 
-`iris_vpu_boot_firmware` 前后各读一次寄存器，读数完全一致：
+### 逐寄存器验证（2026-09-13 第二轮）
 
-```text
-CTRL_STATUS=0x0
-WRAPPER_CORE_POWER_STATUS=0x2          （wrapper 有电）
-WRAPPER_TZ_CPU_STATUS=0x0              （WFI 位为 0：核心不在运行/空闲态）
-WRAPPER_CORE_CLOCK_CONFIG=0x0
-```
+在驱动已完成上电与固件加载、并已写好 UC region 的 **90 秒上电窗口**内，从用户态经 `/dev/mem`
+读取全部相关寄存器。**供电、时钟、复位、固件四项全部正常，核心就是不执行：**
 
-即 **wrapper 有电，但视频核心始终没有执行固件**。已排除的两个变量：
+| 检查项 | 地址 | 实测 | 判读 |
+|---|---|---|---|
+| `video_cc_mvs0c_clk` | `videocc+0xc34` | `0x221`，运行于 840 MHz | 时钟在跑 |
+| `video_cc_mvs0_clk` | `videocc+0xd34` | `0x221`，运行于 560 MHz | 核心时钟在跑 |
+| ARES 异步复位位 | 上述两处 bit2 | `0` / `0` | 不在复位 |
+| `mvs0c_gdsc` / `mvs0_gdsc` | `videocc+0xbf8` / `+0xd18` | 均 `PWR_STATE=1`、`SW_COLLAPSE=0` | 两个电源域都已上电 |
+| `GCC_VIDEO_AXI0_CLK` ARES | `gcc+0x28010` | `0x221` | AXI 时钟在跑、无复位 |
+| 固件保留区 | `0x86700000` | 合法镜像头 `06 10 00 00 01 ff ff ff …` | 固件在内存里 |
+| `CTRL_STATUS` | `iris+0xa004c` | 轮询 1000 次恒为 `0` | **固件从未应答** |
+| `WRAPPER_TZ_CPU_STATUS` | `iris+0xc0010` | WFI 位 `= 0` | **CPU 不在运行** |
 
-- **固件代次**：换用 X13s 的 `qcvss8280.mbn`（2,035,812 B，与华为那份 2,035,748 B 仅差 64
-  字节）后结果逐字节相同 —— 同样的 `-62`、同样的寄存器读数；
-- **固件内存可达性**：`video-region@86700000`（2.10 GiB，5 MiB）远低于驱动
-  `sm8250_data.dma_mask`（`0xe0000000`）。
+窗口内还穷举了全部可写路径，**无一奏效**：直接写 `CTRL_INIT`、撤销 AON/IRIS/调试桥三处 NOC
+低功耗请求、清 TZ 侧时钟 halt、桥复位序列、TZ FIFO 复位、`mvs0`/`mvs0c` 两个 GDSC 各做一次
+掉电→上电、以及写 `CPU_CS_X2RPMH` 的 `MSK_CORE_POWER_ON`（已回读确认寄存器可写）。
 
-这与上游 EL2 补丁 `0018` 的原文一致：EL2 下可以认证并启动固件，但远程处理器不会真正脱离
-复位。remoteproc 靠 `qcom,broken-reset` 跳过复位、接管引导固件已启动的实例来绕过；视频核心
-必须由 Linux 自行启动，没有"在位接管"这条路，因此在 EL2 下不可用。要让视频硬解可用，需要
-内核运行在 EL1（下面有 hypervisor 代管 PAS），而本机固件是把 Linux 直接投到 EL2。
+### 根因
+
+上游 EL2 补丁集的作者对此有明确记载：
+
+> *"It's possible to authenticate and start new firmware, but the remoteproc is never actually
+> brought out of reset. … all the PAS related calls still succeed, it will just not release the
+> remoteproc from reset."*
+
+即：**EL2 下所有 PAS 调用都返回成功，但子系统永远不会真正脱离复位。** 这与本机现象逐字吻合。
+
+DSP（adsp / cdsp / slpi）之所以没事，是因为它们**在开机时就已被引导固件启动**，驱动可以靠
+`qcom,broken-reset` 跳过复位、直接接管运行中的实例；而**视频核必须由 Linux 亲自启动，没有
+"在位接管"这条路**，因此无从绕过。要让视频硬解可用，需要内核运行在 EL1（下方由 hypervisor
+代管 PAS），而本机固件是把 Linux 直接投到 EL2。
+
+### 已无改进空间的旁证
+
+- **设备树不是原因**：本产物生成的 iris 节点与上游 v7 系列（2026-05 最新）**逐属性一致**，
+  含 `iommus = <&apps_smmu 0x2a00 0x400>`、`resets`、`power-domains`、`memory-region`。
+- **上游也没有驱动支持**：该系列**只包含 DT 与 binding，不含任何驱动改动**，且 cover letter
+  自述 *"The driver was very lightly tested on SC8280XP"* —— 即上游同样没有在这个平台上跑通。
+- **固件不是原因**：换用 X13s 的 `qcvss8280.mbn`（2,035,812 B，与华为那份 2,035,748 B 仅差
+  64 字节）后结果逐字节相同。
+
+**结论：这一项在本机上买不到。** 视频播放请走软解路径。
 
 实验记录与复现步骤见 [`patches/iris-el2/README.md`](../../patches/iris-el2/README.md)。
 
