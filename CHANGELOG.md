@@ -37,8 +37,13 @@
 
 ### 已知问题
 
-- 视频硬解在 EL2 下仍不可用：`qcom_scm_mem_protect_video_var` 返回 `-5`，与上游 EL2 补丁
-  0018 关于"远程处理器不会真正脱离复位"的描述一致。
+- 视频硬解在 EL2 下不可用，失败点已定位到 `iris_vpu_boot_firmware` 返回 `-62`（ETIME）：
+  `CTRL_STATUS` 轮询 1000 次恒为 `0`、`WRAPPER_TZ_CPU_STATUS` 的 WFI 位为 `0`（核心不在
+  运行态）、`WRAPPER_CORE_POWER_STATUS=0x2`（wrapper 有电）。换用 X13s 固件结果相同，
+  固件内存地址也在 `dma_mask` 范围内，两个变量均已排除。与上游 EL2 补丁 0018 关于
+  "远程处理器不会真正脱离复位"的描述一致。详见 `patches/iris-el2/README.md`。
+- 实验 iris 驱动时需先 `blacklist qcom_iris`、系统起来后再手动 `modprobe`：开机阶段的
+  反复 probe 超时曾把显示子系统探针拖到 `-110` 并黑屏。
 
 ## [0.1.0] - 2026-09-13
 
