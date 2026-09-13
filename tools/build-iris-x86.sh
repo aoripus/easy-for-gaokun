@@ -199,8 +199,18 @@ cat "$OUT/include/config/kernel.release" 2>/dev/null || echo "（kernel.release 
 step "7. 编译 Image modules dtbs"
 ccache -z >/dev/null 2>&1
 echo "开始: $(date -Is)"
+# ★ 复现性：scripts/setlocalversion 在"源码树是 git 仓库、且 HEAD 不在附注 tag v<KERNELVERSION> 上"
+# 时会给内核串追加 "+"，而 CONFIG_LOCALVERSION_AUTO=n **并不能**阻止它（已实测）。发行版的标准做法是
+# 不带 .git 构建 —— 这里把 .git 临时移开，编完再移回（trap 保证一定恢复）。
+GITDIR="$SRC/.git"
+GITHID=0
+if [ -d "$GITDIR" ]; then mv "$GITDIR" "$SRC/.git.hidden-for-build"; GITHID=1; fi
+restore_git(){ if [ "$GITHID" = 1 ] && [ -d "$SRC/.git.hidden-for-build" ]; then mv "$SRC/.git.hidden-for-build" "$GITDIR"; fi; }
+trap restore_git EXIT
 make O="$OUT" ARCH=arm64 -j"$JOBS" Image modules dtbs
 rc=$?
+restore_git
+trap - EXIT
 echo "make 退出码: $rc  结束: $(date -Is)"
 
 step "8. 产物与断言"
