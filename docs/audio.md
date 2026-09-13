@@ -1,6 +1,6 @@
 # 音频质量：诊断与调优
 
-> **一句话结论**：GK-W76 上"音质不像四扬声器 HUAWEI SOUND"不是故障，而是**三层叠加的必然结果**——内核主动把功放增益锁在 0.00 dB（注释原文 `until we have active speaker protection in place`）、Linux 侧完全不存在 Windows 那套 Histen APO + ADSP 逐机型调音、且加载的是为双扬声器 ThinkPad X13s 编写的 UCM profile。本项目处置立场：**只把 PA Volume 从 UCM 默认的 12 提到内核上限 17，绝不取消内核限幅。**
+> **概述**：GK-W76 上"音质不像四扬声器 HUAWEI SOUND"不是故障，而是**三层叠加的结果**：内核主动把功放增益锁在 0.00 dB（注释原文 `until we have active speaker protection in place`）；Linux 侧不存在 Windows 那套 Histen APO + ADSP 逐机型调音；加载的是为双扬声器 ThinkPad X13s 编写的 UCM profile。本项目处置方式：**只把 PA Volume 从 UCM 默认的 12 提到内核上限 17，不取消内核限幅。**
 
 > **置信度标记**：【已核实】直读第一手源码、固件、上游 API 或本机实测 ·【社区报告】论坛 / 邮件列表 / 第三方 ·【推测】本项目推断。
 > **实测基线**：Ubuntu 26.04 + `7.1.0-rc3-gaokun3-el2+`，声卡名 `SC8280XP-HUAWEI-GAOKUN3`（`/proc/asound/cards` 可见），`audioreach-tplg.bin` 已加载且**能正常出声**。
@@ -16,9 +16,9 @@
 | 2 | 低频缺失、动态发闷 | 完全没有 Windows 侧 Histen APO 的 EQ / DRC / 低频扩展；ADSP Speaker Protection 与 VI 反馈模块默认关闭；无 ACDB 校准数据 | 【已核实】 | **明确不做**替代式软件 EQ（无公开字段语义，无法还原） |
 | 3 | 无包围感、声场与双扬声器无异 | 硬件是 **2 个 WSA8830 功放**（各单声道）驱动四只单元，每侧 2 只共用一路；跑的是 X13s 双扬声器 profile；Windows 的四扬声器空间音效（`SWS_HP_3D*_MULTI` / `_MULTI9`）在 Linux 无对应物 | 【已核实】 | 记录为已知能力边界；不做无依据的虚拟空间化 |
 | 4 | 期待上游 PR #715 救场 | PR #715 新增的 `HUAWEI-MateBook-E-Go.conf` 与 `LENOVO-X13s.conf` **逐字节相同**，即便合并也不改变任何行为 | 【已核实】 | **不依赖**上游 PR |
-| 5 | 是否可以把音量继续调大 | UCM 把 `VISENSE Switch` 显式设为 `0`（保护环路传感器关闭）；ADSP Speaker Protection 默认关闭；社区有多起"调错控件烧掉 X13s 扬声器"的警告 | 【已核实】 | **安全红线：不超过 17**，不碰限幅代码 |
+| 5 | 是否可以把音量继续调大 | UCM 把 `VISENSE Switch` 显式设为 `0`（保护环路传感器关闭）；ADSP Speaker Protection 默认关闭；社区有多起"调错控件烧掉 X13s 扬声器"的警告 | 【已核实】 | **PA Volume 不超过 17**，不碰限幅代码 |
 
-**关键澄清**：能出声证明 `audioreach-tplg.bin` 已由 ALSA topology 加载器读入并经 `q6apm` 下发到 ADSP，**链路是通的**。问题不是"缺 DSP"，而是"DSP 之上没有人给它调音参数"。用户 dmesg 中的 `qcom-apm gprsvc:service:2:1: CMD timeout for [1001021] opcode` 说明 GPR 通信通道已建立、仅某条命令超时。【推测】
+**说明**：能出声证明 `audioreach-tplg.bin` 已由 ALSA topology 加载器读入并经 `q6apm` 下发到 ADSP，**链路是通的**。问题不是"缺 DSP"，而是"DSP 之上没有人给它调音参数"。用户 dmesg 中的 `qcom-apm gprsvc:service:2:1: CMD timeout for [1001021] opcode` 说明 GPR 通信通道已建立、仅某条命令超时。【推测】
 
 ---
 
@@ -111,7 +111,7 @@ static struct snd_soc_dai_driver wsa883x_dais[] = {
 | `pinctrl-0` | `spkr_1_sd_n_default` / `spkr_2_sd_n_default` | 完全相同 | 无 |
 | **`model`** | **`"SC8280XP-HUAWEI-GAOKUN3"`** | **`"SC8280XP-LENOVO-X13S"`** | **唯一差异** |
 
-**这张表是全文最重要的一张**：它解释了"为什么能出声"（codec / 功放 / 拓扑三方完全同构）与"为什么音质不对"（增益与路由曲线不是为四扬声器机型设计的）可以同时成立。
+**该表是全文的对比基准**：它解释了"为什么能出声"（codec / 功放 / 拓扑三方完全同构）与"为什么音质不对"（增益与路由曲线不是为四扬声器机型设计的）可以同时成立。
 
 ### 1.3 硬件能力并不缺
 
@@ -357,7 +357,7 @@ static const SNDRV_CTL_TLVD_DECLARE_DB_RANGE(pa_gain,
 | 类别目录 | 关键文件 | 作用 |
 |---|---|---|
 | `Drv\音频处理对象(APO)\histenapo.inf_arm64_964ebf522147d270\` | `HistenAPO.dll` (4,363,640 B)、`histen.dll`、**`reb_config.bin` (344,736 B)**、`sur_config.bin`、`tws_config.bin`、`lph_config.bin`、`teh_config.bin`、`ten_config.bin` | **Huawei Histen 音效 APO**（Windows 侧 EQ / DRC / 环绕处理） |
-| `Drv\扩展\oemxaudioext_histen.inf_arm64_946d759c58e84313\` | **`histen_config_GaoKunGen3.xml` (202,341 B)**、`act_config_Common.bin` | **★ gaokun3 专属调音参数（34 个 NV 块）** |
+| `Drv\扩展\oemxaudioext_histen.inf_arm64_946d759c58e84313\` | **`histen_config_GaoKunGen3.xml` (202,341 B)**、`act_config_Common.bin` | **gaokun3 专属调音参数（34 个 NV 块）** |
 | `Drv\软件组件\hwaudioservice.inf_arm64_397c208947a60902\` | `HWVEAudioService.exe` (4,604,280 B)、`HWVEAudioSession.exe`、`HWAudioEventMsg.dll`、`device_config.xml`、`operator_settings.xml` | Huawei 音频服务（模式 / 策略 / 会话） |
 
 `histenapo.inf`（UTF-16）注册项【已核实】：
@@ -489,7 +489,7 @@ histen_config_GaoKunGen3.CopyList = 10, System32\HWAudioDriver
 
 → **即便 PR #715 合并，本项目这台机器的音频行为不会有任何改变。** 不应把它当作解决方案。
 
-> 顺带核验：PR #715 依赖 `product_family == "MateBook E"`。**本机实测 `product_family = MateBook E`，会命中。**
+> 核验：PR #715 依赖 `product_family == "MateBook E"`。**本机实测 `product_family = MateBook E`，会命中。**
 
 ### 5.4 社区对 gaokun3 音频的处理
 
@@ -557,20 +557,20 @@ Recently, use the X13s' profile. \
 
 并注明用户态依赖 `alsa-ucm-conf 1.2.11`；`1.2.14` 有**麦克风回归**（回退到 `1.2.13` 作临时方案）。
 
-> **★ 关键区别**：X13s 用户的抱怨是 **"音量小 + 爆音"**，**没有**任何"音质/音色差"的记录 —— 因为 X13s 只有双扬声器，本来就没有"四扬声器体验"可对比。
-> **GK-W76 的"音质差"在社区中没有任何先例报告，本项目是第一次系统性地面对并归因这个问题。**【已核实（无报告）/ 推测（原因）】
+> **区别**：X13s 用户的抱怨是 **"音量小 + 爆音"**，**没有**任何"音质/音色差"的记录 —— 因为 X13s 只有双扬声器，本来就没有"四扬声器体验"可对比。
+> **GK-W76 的"音质差"在社区中没有任何先例报告，本项目是第一次系统性地归因了该问题。**【已核实（无报告）/ 推测（原因）】
 
 ---
 
 ## 6. 本项目的处置方案
 
-### 6.1 立即可做（已实施，零风险）
+### 6.1 已实施
 
 | 动作 | 内容 | 依据 | 状态 |
 |---|---|---|---|
 | **A1** | 把 `SpkrLeft/Right PA Volume` 由 UCM 默认的 `12`（−3.00 dB）提到内核上限 **`17`（0.00 dB）**，净收益 **+3.00 dB** | 内核 TLV 曲线 + `Limits: Playback 0 - 17` + alsa-lib 直读 dB | **已实施**：`scripts/30-audio.sh --apply` 安装 gaokun3 专用 profile，并在重启音频栈后写入增益 + `alsactl store`（顺序与原因见 §6.5） |
 
-`17` 是**内核硬性上限**，不是"我们认为安全的经验值" —— 内核已经替用户把这个界限划好了。当前状态即"在不触碰限幅代码的前提下能达到的最大音量"。
+`17` 是**内核硬性上限**，不是"我们认为安全的经验值" —— 该值由内核强制执行。当前状态即"在不触碰限幅代码的前提下能达到的最大音量"。
 
 > **关于"还能不能再响一点"**：GNOME 音量菜单里可以打开 **超音量（over-amplification）**，把音量推到 100% 以上。那是
 > **PipeWire 软件域的数字放大**，会直接在已渲染的 PCM 上做乘法、**可能削波**，也不属于内核限幅所要保护的那一段
@@ -578,7 +578,7 @@ Recently, use the X13s' profile. \
 > 另外本机实测：空闲时 ADSP 侧的 `stream1.vol_ctrl1 MultiMedia2 Playback Volume` 恒为 `8192`，
 > 不随 `wpctl set-volume` 变化（该控件只在 PCM 被打开时由驱动下发），因此它与桌面音量是两个独立的域。
 
-### 6.2 需评估（有收益，但必须先取证）
+### 6.2 待评估（有收益，需先取证）
 
 | 编号 | 候选动作 | 前置条件 | 风险 |
 |:-:|---|---|---|
@@ -599,9 +599,9 @@ Recently, use the X13s' profile. \
 | **C6** | **不利用未被内核限幅的 `WSA_RX0/RX1_MIX Digital Volume`** 来"补回"音量 | 本机实测该控件范围 **0–124**，`84 = 0.00 dB`、`124 = +40.00 dB`，**没有任何内核限幅**。它与被限到 `81`（−3.00 dB）的 `WSA_RX0/RX1 Digital Volume` 同属 WSA macro 的数字增益级（【推测】：两者都在 RX0/RX1 数字通路上）。内核注释写明限幅目的是 `to reduce the risk of speaker damage until we have active speaker protection in place`；利用 MIX 级把总数字增益推回正值，**在效果上等同于取消该保护决策**，属于 C1 的同一类行为，因此明确不做，并在此记录以免后来者误用 |
 | **C7** | 不把 `SpkrLeft/Right COMP Switch`、`COMP Offset` 当作"音质调节旋钮"来试参数 | 这是 WSA8830 内建压缩器（compander）的使能与偏置，属于**扬声器保护/响度整形**的一部分，当前值（`on` / offset `2`）来自 wsa883x 驱动默认与上游 UCM 行为。在不知道扬声器热/冲程模型的前提下调整它，与 C1 同类风险 |
 
-### 6.4 安全红线（一句话版）
+### 6.4 增益上限
 
-> **只把 PA Volume 从 12 提到内核上限 17。绝不取消内核限幅。**
+> **只把 PA Volume 从 12 提到内核上限 17，不取消内核限幅。**
 
 ---
 
@@ -638,7 +638,7 @@ alsaucm -c SC8280XP-HUAWEI-GAOKUN3 dump text 2>&1 | head -80
 dpkg -l | grep -i alsa-ucm
 ```
 
-### 7.2 确认限幅与控件状态（★ 最关键）
+### 7.2 确认限幅与控件状态
 
 ```bash
 # 功放音量：期望 Limits 上限 = 17，当前值 = 17（本项目已调整）
@@ -719,7 +719,7 @@ sudo dmesg | grep -iE 'soundwire|sdw|swr'
 ### 7.4 音质实验与回滚（含写操作）
 
 ```bash
-# ① 先备份当前混音器状态（务必先做）
+# ① 备份当前混音器状态（须先做）
 sudo alsactl store -f /tmp/gaokun3-mixer-before.state
 
 # ② 左右 / 频率分离测试（硬件只暴露 2 通道，只能测 L/R，不能单独测 4 只单元）
@@ -745,7 +745,7 @@ pactl list sinks short
 pactl info | grep -iE 'server name|default sink'
 ```
 
-**★ 绝对不要执行**（会失去内核保护）：
+**以下操作会失去内核保护，不得执行**：
 
 ```bash
 # 以下均为禁止操作：不修改内核音量限幅、不把 PA Volume 设到 17 以上
