@@ -7,13 +7,35 @@
 
 ## 状态
 
-编译通过，产物完整（校验值见下方 SHA256）。**未在目标设备上启动验证。**
+已在本机（GK-W7X）实测启动验证：
 
-本机没有 EDL / 9008 救援通道，安装前应保留一个可用的默认启动项，回滚方式见「安装」第 4 步。
+| 子系统 | 实测结果 |
+|---|---|
+| 启动 | one-shot 试启动通过，`uname -r` 即本产物的 release 串 |
+| 音频 | 声卡 `SC8280XP-HUAWEI-GAOKUN3` 注册；`SpkrLeft/Right PA Volume = 17` |
+| 触屏 | `gpio174 : out low`，Himax 中断计数持续增长 |
+| remoteproc | slpi / adsp / cdsp 均为 `attached`：EL2 下不做复位，接管引导固件已启动的实例 |
+| 视频硬解 | **不可用**，失败点已定位，见下节 |
 
-## 已知风险
+本机是标准 UEFI 平台：有固件设置界面、可从 USB 启动、ESP 是普通 FAT32 分区。安装时保留原
+默认条目即可；即使引导项写错，也能用 U 盘启动挂载 ESP 修复。
 
-IRIS 与 Venus 使用同一套 PAS 调用序列（`qcom_scm_pas_auth_and_reset`、`qcom_scm_mem_protect_video_var`），而该通路在 EL2 下的可用性取决于 `patches/el2/*` 中的 self-owner 与 `qcom,broken-reset` 改动，本产物已包含该组补丁。若启动后 probe 仍报 `auth and reset failed`，失败点即在 SCM/PAS。详见 `docs/build-kernel-iris.md` §7.1。
+## 视频硬解的状态
+
+固件加载在 EL2 下要跨过四道 SCM 调用，本产物停在最后一道：
+
+| 阶段 | 结果 |
+|---|---|
+| `qcom_scm_pas_init_image`（认证固件元数据） | 通过 |
+| `qcom_scm_pas_auth_and_reset`（启动并解复位） | 通过 |
+| `qcom_scm_mem_protect_video_var`（设置受保护内存区） | **`-5`（EIO）** |
+| 打开 `/dev/video0` | `EIO` |
+
+前两步依赖 `patches/el2-v7.2/` 与 `patches/iris-el2/`：前者提供 EL2 下的 self-owner SHM
+bridge 与 `qcom,broken-reset`，后者把 iris 驱动由 EL1 假设改为 ctx 感知路径（两个目录下各有
+README 说明）。第三道调用被 TrustZone 拒绝，与上游 EL2 补丁 0018 的描述一致 —— EL2 下可以
+认证并启动固件，但远程处理器不会真正脱离复位；remoteproc 靠在位接管绕过，而视频核心必须由
+Linux 自行启动，因此在 EL2 下仍不可用。
 
 ## 变更
 
