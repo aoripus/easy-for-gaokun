@@ -7,6 +7,12 @@ SRC=$BASE/linux
 OUT=$BASE/out-$VER
 REL=$(cat "$OUT/include/config/kernel.release" 2>/dev/null)
 [ -n "$REL" ] || { echo "读不到 kernel.release，构建是否成功？"; exit 1; }
+# ★ 复现性红线：内核串尾不得有 "+"。那个 "+" 是 CONFIG_LOCALVERSION_AUTO 在源码树非
+# pristine（无 tag / 有未提交改动）时的追记符。带 "+" 的串意味着一份逻辑源码会派生出
+# 两个不同的 /lib/modules/<串>/、initrd 名与 BLS 条目名，产物不可复现，拒绝打包。
+case "$REL" in
+  *"+"*) echo "!! 内核串 '$REL' 含 '+'：CONFIG_LOCALVERSION_AUTO 未关闭，拒绝打包"; exit 1 ;;
+esac
 STAGE=$BASE/stage-${REL%-}
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 
@@ -107,7 +113,7 @@ echo "=== 3. 生成构建溯源清单 BUILD-PROVENANCE.md ==="
   echo "## 配置要点"
   echo
   echo '```text'
-  grep -E "CONFIG_LOCALVERSION=|CONFIG_VIDEO_QCOM_(IRIS|VENUS)|CONFIG_MODULE_SIG=|CONFIG_DEBUG_INFO_BTF=" "$OUT/.config"
+  grep -E "CONFIG_LOCALVERSION(=|_AUTO)|CONFIG_VIDEO_QCOM_(IRIS|VENUS)|CONFIG_MODULE_SIG=|CONFIG_DEBUG_INFO_BTF=" "$OUT/.config"
   echo '```'
   echo
   echo "## 构建环境"
