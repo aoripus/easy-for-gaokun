@@ -13,8 +13,10 @@ exclude = ["downloads", "Drv", "Recovery"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = [
-  "E501", # 行长：中文注释与实机输出难以压到 100 列
-  "E402", # 这些脚本常有"先解析参数再 import"的写法
+  "E501",  # 行长：中文注释与实机输出难以压到 100 列
+  "E402",  # 这些脚本常有"先解析参数再 import"的写法
+  "UP031", # printf 风格格式化：tools/ 里有 40+ 处活跃使用的 % 格式化，
+           # 一次性改成 f-string 的收益不抵改动风险；待专门清理时再开启
 ]
 
 [tool.ruff.format]
