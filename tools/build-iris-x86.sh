@@ -52,11 +52,11 @@ command -v "${CROSS_COMPILE}gcc" >/dev/null || die "找不到 ${CROSS_COMPILE}gc
 "${CROSS_COMPILE}gcc" --version | head -1
 
 step "1. 解包 v$VER"
-cd "$BASE"
+cd "$BASE" || die "无法进入 $BASE"
 rm -rf "$SRC"
 tar xzf "$TARBALL"
 mv "linux-$VER" linux
-cd "$SRC"
+cd "$SRC" || die "无法进入 $SRC"
 echo "kernelversion: $(make ARCH=arm64 kernelversion 2>/dev/null)"
 
 step "2. git 初始化"
