@@ -390,8 +390,14 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 
 | 类型 | 标签形如 | 内容 |
 |------|----------|------|
-| **源码里程碑** | `v0.1.0` | 仓库自身状态的快照（GitHub 自动生成源码包）；更新内容见 [`CHANGELOG.md`](CHANGELOG.md) |
-| **内核构建产物** | `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | `Image`、设备树、模块包、`.config`、`System.map`，以及构建溯源清单 |
+| **源码里程碑** | [`v0.1.0`](https://github.com/aoripus/easy-for-gaokun/releases/tag/v0.1.0) | 仓库自身状态的快照（GitHub 自动生成源码包）；更新内容见 [`CHANGELOG.md`](CHANGELOG.md) |
+| **内核构建产物** | [`kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913`](https://github.com/aoripus/easy-for-gaokun/releases/tag/kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913) | `Image`、设备树（含 EL2 变体）、模块包、`.config`、`System.map`、`vmlinux`、构建溯源清单与 SHA-256 |
+
+已发布的构建产物：
+
+| 标签 | 内容 | 状态 |
+|------|------|------|
+| `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | IRIS 视频硬解试验内核（`CONFIG_VIDEO_QCOM_IRIS=m`，上游 iris 设备树节点） | 编译通过；**未经启动验证** |
 
 **为什么内核产物要独立打标签**：同一个源码版本会对应多次内核构建
 （不同 `.config` / 设备树 / 补丁组合，例如"开 IRIS"与"开 Venus"），
