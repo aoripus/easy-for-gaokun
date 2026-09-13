@@ -15,7 +15,7 @@
 | 音频 | 声卡 `SC8280XP-HUAWEI-GAOKUN3` 注册；`SpkrLeft/Right PA Volume = 17` |
 | 触屏 | `gpio174 : out low`，Himax 中断计数持续增长 |
 | remoteproc | slpi / adsp / cdsp 均为 `attached`：EL2 下不做复位，接管引导固件已启动的实例 |
-| 视频硬解 | **尚未打通**（此前"EL2 下不可修复"的判断已被推翻，见下节） |
+| 视频硬解 | **不可用**（根因已定型：TZ 侧 QTEE + 签名 TA，Linux 够不到；**不是** EL2 的限制），见下节 |
 
 本机是标准 UEFI 平台：有固件设置界面、可从 USB 启动、ESP 是普通 FAT32 分区。安装时保留原
 默认条目即可；即使引导项写错，也能用 U 盘启动挂载 ESP 修复。
@@ -99,9 +99,31 @@ TrustZone 也**确实活着**（不存在的 PAS ID 一律返回 `-22`），并*
 `pas_shutdown()` 并中止 probe。此外本机固件经上游 master 的判定算法确认为 **Gen1**
 （`QC_IMAGE_VERSION_STRING=video-firmware.1.1-…`），因此"用错 HFI 代次"已被排除。
 
-**当前状态：本机尚未打通硬解；原因待查，但已确认不是 EL2 的架构限制。**
-在打通之前，视频播放请走软解路径。可复现的探针工具见
-[`tools/pas-probe/`](../../tools/pas-probe/README.md)。
+### 根因（2026-09-13 第四轮定型）
+
+把 Windows 驱动 `qcdxkm8280.sys` 的 TrustZone 接口逆向出来之后，根因清楚了：
+
+**该设备的 TrustZone 把视频子系统的安全世界支持（CP 内存保护 + 子系统状态机）实现在
+QTEE + 签名 TA 之后，而 Linux 够不到那里。**
+
+- Windows 驱动视频核走的是 **QTEE（TrEE）IOCTL**，不是 Linux iris 用的 SIP SMC；
+  并且它在视频核初始化时调用了 **Linux 侧完全没有**的 TZ 子系统状态函数
+  （`TZ_SUBSYS_STATE_RESUME`、`TZ_SUBSYS_STATE_VENUS_RESTORE_THRESHOLD`，subsys = 9）。
+- Linux 的 SIP 路径上，`QCOM_SCM_MP_VIDEO_VAR` 对本机**无条件返回 `-EIO`**：
+  6 组参数（含从 Windows 逆向出的两套静态表）全部一致，且"冷状态"下作为第一个 SCM
+  调用同样失败 —— 与顺序、状态、取值都无关。
+- 经 `qcomtee` 复刻这条路被**源码否决**：`drivers/tee/qcomtee/core.c` 把 `op` 掩到 16 位
+  （`0x02000C08` 当场 `-EINVAL`），且"只能调用 QTEE 托管的对象"，即需要**签名 TA**。
+
+**因此本机没有可走的 Linux 侧路径。** 需要强调的是：这**不是** EL2 的架构限制 ——
+Lenovo ThinkPad X13s（同为 SC8280XP）已在 EL2 下把 iris 跑通。差异在设备专有的安全世界固件。
+
+替代方案是软件解码：本机实测 1080p30 H.264 只吃约 **0.5 个大核**（14.2× 余量），
+VP9 / AV1 分别为 6.3× / 7.5× —— 1080p 属"余量充足"。详见
+[`../../docs/software-video-decode.md`](../../docs/software-video-decode.md)。
+
+可复现的探针工具见 [`tools/pas-probe/`](../../tools/pas-probe/README.md)，
+Windows 侧接口逆向记录见 [`docs/windows-video-tz-interface.md`](../../docs/windows-video-tz-interface.md)。
 
 实验记录与复现步骤见 [`patches/iris-el2/README.md`](../../patches/iris-el2/README.md)。
 
