@@ -31,7 +31,7 @@ lint-md: ## Markdown 风格（规则见 .markdownlint-cli2.yaml）
 	npx --yes markdownlint-cli2 "**/*.md"
 
 lint-sh: ## shellcheck -x + 逐文件 bash -n
-	shellcheck --rcfile=.shellcheckrc -S warning -x $(SH_FILES)
+	shellcheck -S warning -x $(SH_FILES)
 	@for f in $(SH_FILES); do bash -n "$$f" || exit 1; done
 	@echo "OK：shellcheck 与 bash -n 均通过"
 
