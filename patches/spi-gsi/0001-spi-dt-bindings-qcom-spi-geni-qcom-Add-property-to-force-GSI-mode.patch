@@ -1,0 +1,37 @@
+From 20260614083424.464132-1-mitltlatltl@gmail.com Mon Sep 17 00:00:00 2001
+From: Pengyu Luo <mitltlatltl@gmail.com>
+Date: Sun, 14 Jun 2026 16:34:23 +0800
+Subject: [PATCH 1/2] spi: dt-bindings: qcom,spi-geni-qcom: Add property to force GSI mode
+
+Some devices (such as gaokun3) do not disable FIFO mode, causing the
+driver to fallback to FIFO mode by default. However, these platforms
+also support GSI mode, which is highly preferred for certain
+peripherals like SPI touchscreens to improve performance.
+
+Introduce the "qcom,force-gsi-mode" device property to hint and force
+the controller into GSI mode during initialization.
+
+Signed-off-by: Pengyu Luo <mitltlatltl@gmail.com>
+Link: https://lore.kernel.org/linux-arm-msm/20260614083424.464132-1-mitltlatltl@gmail.com
+---
+ Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml b/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml
+index edf399681d7a..80e394c1c715 100644
+--- a/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml
++++ b/Documentation/devicetree/bindings/spi/qcom,spi-geni-qcom.yaml
+@@ -45,6 +45,11 @@ properties:
+       - const: tx
+       - const: rx
+ 
++  qcom,force-gsi-mode:
++    $ref: /schemas/types.yaml#/definitions/flag
++    description:
++      Use DMA (GSI) mode, even if FIFO mode is not disabled.
++
+   interconnects:
+     minItems: 2
+     maxItems: 3
+-- 
+2.54.0
