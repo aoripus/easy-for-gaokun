@@ -53,17 +53,43 @@ tag      = kernel-<完整内核串>-<YYYYMMDD>
 > 但**不要**指望用旧串复现出逐字节相同的产物 —— 旧串是 `CONFIG_LOCALVERSION_AUTO` 尚未关闭时的产物，
 > 已不可再生（见 §0.3）。
 
-### 0.3 `CONFIG_LOCALVERSION_AUTO` 必须关闭（★ 复现性红线）
+### 0.3 ★★ 内核串尾部的 `+`：**两个条件，缺一不可**（复现性红线）
 
-旧串结尾那个 **`+`** 正是 `CONFIG_LOCALVERSION_AUTO=y` 在"源码树非干净 / 无 tag"时的追记符。
-危害：同一份逻辑源码在 clean / dirty 两种状态下会产生**两个不同的 `/lib/modules/` 目录**，
-发布串不可复现，装机与模块加载会踩空。
+**第一版认知（已被实测更正）**：曾以为只要 `CONFIG_LOCALVERSION_AUTO=n` 就不会有 `+`。**不对。**
 
-⇒ 配方中必须 `scripts/config --disable LOCALVERSION_AUTO`，最终 `.config` 必须出现：
+内核串由 `scripts/setlocalversion` 生成（`Makefile:1388` 的 `filechk_kernel.release`）。
+当 `CONFIG_LOCALVERSION_AUTO≠y` 时走 `else` 分支，仍会调用 `scm_version --short`；
+只要源码树**是一个 git 仓库、且 HEAD 不恰好落在名为 `v$(KERNELVERSION)` 的附注（annotated）tag 上**，
+它就会打印 `+`：
 
+```sh
+if [ -z "${count}" ] || [ "${count}" -gt 0 ]; then
+	if $short; then echo "+"; return; fi
 ```
-# CONFIG_LOCALVERSION_AUTO is not set
-```
+
+**实测对照**（VM 上直接跑 `KERNELVERSION=7.2.5 sh scripts/setlocalversion $SRC`，
+两种情况下 `.config` 都已是 `# CONFIG_LOCALVERSION_AUTO is not set`）【已核实】：
+
+| 源码树状态 | `setlocalversion` 输出 |
+|---|---|
+| `.git` 存在、HEAD 无附注 tag | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`**`+`** |
+| `.git` 移开 | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1` ✅ |
+
+**⇒ 必须同时满足两条**：
+
+1. `scripts/config --disable LOCALVERSION_AUTO`，最终 `.config` 必须是
+   `# CONFIG_LOCALVERSION_AUTO is not set`；
+2. **生成内核串时源码树不得带 git 元数据** —— 即**发行版的标准做法：从 tarball 解包、
+   不带 `.git` 构建**。本项目的做法是在 `make` 前把 `.git` 移开、构建后再移回
+   （`build-el1-phase2.sh` 用 `trap … EXIT` 保证一定恢复）；**补丁管理**与**合并补丁的生成**
+   都在移开之前完成。
+
+**为何要较真**：`+` 会进入 `uname -r`，进而派生出 `/lib/modules/<串>+/`、initrd 名、
+systemd-boot 条目名与 ESP 目录名；同一份逻辑源码在"带 `.git`"与"不带 `.git`"两种状态下会得到
+**两个不同的模块目录**，发布串不可复现、装机与模块加载会踩空。
+
+**门禁**：编译完成后断言 `include/config/kernel.release` 不含 `+`（`build-el1-phase2.sh`
+已内建；命中即中止）。
 
 ---
 
@@ -131,8 +157,10 @@ $CFG --file $BASE/out-el1-$VER/.config --disable SYSTEM_TRUSTED_KEYS
 $CFG --file $BASE/out-el1-$VER/.config --disable SYSTEM_REVOCATION_KEYS
 make O=$BASE/out-el1-$VER ARCH=arm64 olddefconfig
 
-# 5) 编译
+# 5) 编译（★ 先把 .git 移开，否则内核串尾会多出 "+"，见 §0.3）
+mv $BASE/linux-el1-$VER/.git $BASE/linux-el1-$VER/.git.hidden-for-build
 make O=$BASE/out-el1-$VER ARCH=arm64 -j16 Image modules dtbs
+mv $BASE/linux-el1-$VER/.git.hidden-for-build $BASE/linux-el1-$VER/.git
 ```
 
 现成脚本：`/root/gaokun/build-el1-x86.sh`（阶段 1：解包 + 补丁 + 配置 + 编译）
