@@ -15,7 +15,7 @@
   "scripts": {
     "lint:md": "markdownlint-cli2 \"**/*.md\"",
     "lint:yaml": "yamllint -c .yamllint.yml .",
-    "lint:sh": "shellcheck --rcfile=.shellcheckrc -S warning -x scripts/*.sh scripts/lib/*.sh tools/*.sh",
+    "lint:sh": "shellcheck -S warning -x scripts/*.sh scripts/lib/*.sh tools/*.sh",
     "lint:py": "ruff check tools/",
     "patches": "bash scripts/check-patches.sh",
     "commitlint": "commitlint --edit",
