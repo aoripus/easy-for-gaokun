@@ -1,0 +1,28 @@
+# ============================================================================
+# easy-for-gaokun — Dependabot
+#
+# 本仓库唯一的「依赖」是 GitHub Actions（其它工具链由 apt / pip / npx 在 CI 里现取，
+# 版本不写死在仓库里）。因此只对 github-actions 做每周更新，
+# 并把单次开放的 PR 数压得很低，避免刷屏。
+# ============================================================================
+
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 2
+    # 提交信息用 Conventional Commits（与 CONTRIBUTING 一致）；
+    # include: scope 会再拼一层括号 scope，这里只要 prefix 里的 (ci)
+    commit-message:
+      prefix: "chore(ci)"
+    # 同一周内所有 action 的更新合成一个 PR，便于一次性复核
+    groups:
+      github-actions:
+        patterns:
+          - "*"
