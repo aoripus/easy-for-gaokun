@@ -434,15 +434,34 @@ v4l2-ctl --list-devices          # 期望出现 Iris Decoder
 
 ## 7. 风险与不确定项
 
-### 7.1 头号风险：PAS / 安全世界（未解决，且换驱动解决不了）
+### 7.1 PAS / 安全世界：必须先应用 EL2 补丁组
 
 【已核实】IRIS 与 Venus 走**同一条** PAS 通路（`iris/iris_firmware.c`）：驱动调用
 `qcom_scm_pas_auth_and_reset(core->iris_platform_data->pas_id)`，失败时打印 `"auth and reset failed: %d"`；
 随后 `qcom_scm_mem_protect_video_var()` 失败时打印 `"qcom_scm_mem_protect_video_var failed: %d"`。
-既有诊断已确认本机 `__qcom_mdt_pas_init()` → `qcom_pas_init_image()` 失败
-（见 [`docs/video-decode.md`](video-decode.md)）。**IRIS 是否踩同一个坑，本配方无法预先证明**；
-这不是配置问题，而是 SCM/PAS 在 EL2 环境下能否工作的问题。
-【推测】若失败，应往 `qcom_scm` / `qcom_pas` / `patches/el2/*` 方向查，而非在 media 驱动里查。
+
+在 EL2（无 hypervisor）下这条通路依赖 `patches/el2/*` 中的几处改动：
+
+| 补丁 | 作用 |
+|---|---|
+| 0011 | 新增 `qcom,shm-bridge-vmid` 绑定与 `QCOM_SCM_VMID_SELF_OWNER` |
+| 0012 | `qcom_tzmem.c` 改用 self-owner 位分配 TZ 共享内存 |
+| 0014 | `sc8280xp-el2.dtso` 为 `&scm` 指定 self-owner |
+| 0016 / 0018 | `qcom,broken-reset`：EL2 下 PAS 能认证并启动固件，但 remoteproc 不会真正脱离复位，因此跳过复位改为 attach 已在运行的实例 |
+
+**缺少该组补丁时的实测表现**（2026-09-13 首次构建，一度被误判为基线或机型缺陷）：
+`qcom_scm: qseecom: scm call failed with error -22`，随后 adsp / cdsp / slpi / venus
+的固件加载全部报 `error -22`，**音频与视频同时失效**。排除方法很直接：基线内核上
+ADSP 正常（声卡注册成功），说明 PAS 在 EL2 下可用，缺的是补丁而不是能力。
+
+构建侧有两个坑，`tools/build-iris-x86.sh` 已处理：
+
+1. `git apply` 一次传多个补丁是**原子操作**，只要一个失败就整组不应用；旧脚本在失败后
+   仍然继续编译，会静默产出一个 PAS 不可用的内核。现在改为逐个应用、统计失败数，
+   失败过多直接中止，并在编译后断言关键标记存在。
+2. **本地补丁快照会过期。** `patches/el2/*` 必须对齐 buildbot 仓库的当前版本；其 CI
+   （`.github/workflows/gaokun3-package-debs.yml`）的 `kernel_tag` 默认值即 `v7.2-rc2`，
+   与本项目基线一致。补丁日期不等于适用基线，务必重新拉取再比对。
 
 > **变体提示**：§4 生成的是标准 `7.1.0-rc3-gaokun3`，与实机运行的 `-gaokun3-el2` **版本串不同**。
 > 若要直接替换，需在 §4.5 前追加应用 `patches/el2/*` 并把 `LOCALVERSION` 设为 `-gaokun3-el2`。
