@@ -224,7 +224,7 @@ DTC 阶段报 `Lexical error: ... Unexpected 'VIDEO_CC_MVS0C_CLK_ARES'`（实机
 ```
 
 **4.4.3 IRIS 与 VIDECOCC 节点**：同文件，在 `usb_1_dwc3_ss: endpoint` 所在块结束处
-（第 4183 行的 `		};`，紧邻第 4185 行 `cci0: cci@ac4a000`）**之前**插入：
+（第 4183 行的 `};`，紧邻第 4185 行 `cci0: cci@ac4a000`）**之前**插入：
 
 ```dts
 		iris: video-codec@aa00000 {
