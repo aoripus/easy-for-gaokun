@@ -15,6 +15,32 @@
 
 ## [未发布]
 
+### 修复
+
+- **触屏：`himax_lock()`/`himax_unlock()` 中断使能不对称，任何 sysfs 访问都会"打死"触屏中断。**
+  `himax_lock()` 走 `himax_quiesce_irq()`（`disable_irq_nosync()` + `synchronize_irq()`），
+  而 `himax_unlock()` **只 `mutex_unlock()`、从不 `enable_irq()`** ⇒ 一次 `inplace_reset`/`afe_cmd`/`algo/*`
+  写入就会把触屏中断永久屏蔽，直到下一次完整重初始化（面板 prepared→enabled 之后的
+  `himax_hw_reinit()` 会把它重新打开，所以日常使用不易察觉）。该缺陷继承自社区驱动，
+  **r0 / r1 / r2 三个已发布内核都带**。修复方式：进入时保存中断使能状态，
+  退出时按 `irq_resume && panel_enabled && !idle_active && !shutting_down` 恢复。
+  这个缺陷曾把"写 sysfs"误判成"AFE 命令让 IC 停流"，污染了两轮空闲模式实验，
+  详见 [`docs/touch-idle-policy.md`](docs/touch-idle-policy.md) §3。
+
+### 新增
+
+- **触屏空闲策略（"幽灵中断"治理）：中断门控采样。** 空闲时 HX83121A 每帧都上报（**119 Hz、单核 1.8–2.0% CPU**），
+  根因是本驱动里 **IC 只当传感器、触控判定全部在主机**，IC 无法知道"有没有手指"。
+  r3 的做法：连续 `idle_enter_frames`（默认 240 ≈ 2 s）帧无触点后 `disable_irq()`，
+  之后每 `idle_poll_ms`（默认 30 ms）**只放行一帧**走正常中断路径判断有无触点，有触点立刻恢复中断模式。
+  实测 **119.2 Hz → 22.9 Hz、单核 CPU 2.00% → 0.50%**，且**不需要**任何 AFE 命令、**不需要**芯片重初始化
+  （屏蔽中断不影响 IC 扫描，解除屏蔽也不会 storm）。默认关闭（`idle_enter_frames=0`）。
+  实测数据、AFE 邮箱语义（`0x0a` 真停扫、`0x0e` 真唤醒、`0x01` 无效、协议无 ack）与
+  "work 里直接读帧会读到撕裂帧并误判触点"的失败记录见
+  [`docs/touch-idle-policy.md`](docs/touch-idle-policy.md)。
+- **`docs/touch-idle-policy.md`**：触屏空闲中断治理笔记（现象量化、架构根因、AFE 语义实测表、
+  r3 策略与收益、未采纳方案、诊断节点用法、上游化建议）。
+
 ### 变更
 
 - **内核产物命名规范定稿（自 `r1` 起生效）。** 内核串改为
