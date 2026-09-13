@@ -27,7 +27,9 @@ repos:
     rev: v0.10.0
     hooks:
       - id: shellcheck
-        args: ['-x']            # 跟随 source scripts/lib/common.sh
+        # --rcfile：ShellCheck 不会向上层目录找 .shellcheckrc，必须显式指定
+        # -S warning：严重级别只能由命令行指定（rcfile 里的 severity 不生效）
+        args: ['--rcfile=.shellcheckrc', '-S', 'warning', '-x']
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.43.0
