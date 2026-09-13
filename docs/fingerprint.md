@@ -29,7 +29,7 @@
 
 社区（`right-0903/linux-gaokun` 的 README 特性表）对指纹只有一行：
 
-```
+```text
 | Fingerprint reader | x | FTE7001, gpio185 |        ← 【社区报告】
 ```
 
@@ -52,7 +52,7 @@
 
 dmesg 里其实给出了 RSDP 的物理地址，说明 ACPI 表仍在内存中：
 
-```
+```text
 [    0.000000] efi: ACPI 2.0=0xffffd000 MEMATTR=... ESRT=... SMBIOS=... INITRD=...
 ```
 
@@ -64,14 +64,14 @@ dmesg 里其实给出了 RSDP 的物理地址，说明 ACPI 表仍在内存中�
 Windows 装在同一块硬盘（`nvme0n1p3`）上，**并且确实启动过**。它的
 `SYSTEM` hive 里：
 
-```
+```text
 HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\<ACPI HID>\<实例序号>
 ```
 
 记录的是**这台机器真正枚举过的 ACPI 设备**——不是驱动包里"可能支持"的设备。
 更关键的是每个实例下的：
 
-```
+```text
 LogConf\BootConfig          REG_BINARY   ← Windows 为它分配的 CM_RESOURCE_LIST
 LogConf\BasicConfigVector   REG_BINARY   ← 它向系统申请的资源（需求列表）
 ```
@@ -108,7 +108,7 @@ python3 tools/win-acpi-hive.py /tmp/SYSTEM --connections
 
 FTE7001 的实例键内容：
 
-```
+```text
 DeviceDesc    @oem117.inf%2C%25devicename%25;FocalTech Fingerprint reader
 Mfg           FocalTech Electronics(ShenZhen)Co.,Ltd
 HardwareID    ACPI\VEN_FTE&DEV_7001 | ACPI\FTE7001 | *FTE7001
@@ -143,7 +143,7 @@ Goodix 那份没有这个注册段。这是"本机 TA 属于 FocalTech 实现"�
 
 `Recovery/OEM/Customization/Product/Dirvers2PE/PAR_install.cmd` 里：
 
-```
+```text
 DISM /image:w:\ /add-driver /driver:%AR_path%\PlatformDriver /recurse
 ```
 
@@ -179,7 +179,7 @@ Windows 分配给设备的资源存在 `BootConfig`（`CM_RESOURCE_LIST`）。�
 （`Type = 0x84`，`CmResourceTypeConnection`）固定为 **4 + 16 = 20 字节**，
 union 的**前两字节是 `Class` 与 `Type`**：
 
-```
+```text
 Class: 0x01 = GPIO        0x02 = SERIAL（SPB）      0x03 = FUNCTION
 Type : GPIO   0x01 = IO   0x02 = INT
        SERIAL 0x01 = I2C  0x02 = SPI  0x03 = UART
@@ -188,7 +188,7 @@ Type : GPIO   0x01 = IO   0x02 = INT
 **这条语义不是猜的**，而是用同一台机器上的已知设备标定出来的
 （`tools/win-acpi-hive.py --connections` 可复现）：
 
-```
+```text
 连接类型   ACPI ID     DeviceDesc                                    Class  Type  Id1
 GPIO_INT   QCOM0696    Qualcomm(R) PCIe Platform Extension Plugin   0x01   0x02   2..8
 GPIO_INT   QCOM2466    Qualcomm SoC Secure Digital host controller  0x01   0x02   41
@@ -211,7 +211,7 @@ Class/Type 分布：0x01/0x02 (GPIO_INT) 14 个 · 0x02/0x02 (SPI) 2 个 · 0x02
 
 ### 4.2 FTE7001 的资源分配（决定性）【已核实】
 
-```
+```text
 $ python3 tools/win-acpi-hive.py /tmp/SYSTEM --resources FTE7001
 FTE7001\1  ->  FocalTech Fingerprint reader
   父设备: ACPI(_SB_)#ACPI(SPBA)
@@ -241,7 +241,7 @@ FTE7001\1  ->  FocalTech Fingerprint reader
 对 `Drv/扩展/qctreeextoem8280.inf_arm64_671465aeb0edf1b8/fingerpr.mbn`
 （3,669,575 B，ELF64/AArch64）做字符串提取，SPI 相关符号密集且成体系：
 
-```
+```text
 ../src/focal_fp_spi.c
 [ta_spi]qsee_spi_close1: retval=%d
 [ta_spi]spi open %d success / failed, ret %d
@@ -294,7 +294,7 @@ E:\work\TZ\trustzone_images\ssg\securemsm\trustzone\qsapps\sampleapp\src\spi.c
 
 ## 5. Linux 侧现状（实机实测，只读）
 
-```
+```text
 $ lsusb                       → 只有 12d1:10b8 + root hub
 $ ls /sys/bus/spi/devices/    → spi0.0（himax-spi 触屏）
 $ ls /sys/bus/i2c/devices/    → 15-0038（gaokun3-ec）、i2c-4/16/17
