@@ -459,9 +459,14 @@ ADSP 正常（声卡注册成功），说明 PAS 在 EL2 下可用，缺的是�
 1. `git apply` 一次传多个补丁是**原子操作**，只要一个失败就整组不应用；旧脚本在失败后
    仍然继续编译，会静默产出一个 PAS 不可用的内核。现在改为逐个应用、统计失败数，
    失败过多直接中止，并在编译后断言关键标记存在。
-2. **本地补丁快照会过期。** `patches/el2/*` 必须对齐 buildbot 仓库的当前版本；其 CI
-   （`.github/workflows/gaokun3-package-debs.yml`）的 `kernel_tag` 默认值即 `v7.2-rc2`，
-   与本项目基线一致。补丁日期不等于适用基线，务必重新拉取再比对。
+2. **补丁的日期不代表它适用的基线。** `patches/el2/*` 发布于 2025-07，在 v7.2-rc2 上有
+   4 个补丁无法直接应用：`0006`（把 `struct rproc.auto_boot` 改成 `enum rproc_auto_boot`
+   的那个补丁，其 xlnx hunk 撞上上游后加的代码）失败后，依赖该枚举的 `0010`、`0016`
+   必然级联失败；`0011` 则是 `scm.h` 上下文漂移。适配结果见
+   [`patches/el2-v7.2/`](../patches/el2-v7.2/README.md)，`tools/build-iris-x86.sh`
+   会自动以本仓库重写版覆盖 buildbot 原集。
+   另需注意 buildbot CI 的 `build_el2` 默认为 `false`，EL2 是可选变体，因此这组补丁
+   在 main 上失效不会被 CI 发现。
 
 > **变体提示**：§4 生成的是标准 `7.1.0-rc3-gaokun3`，与实机运行的 `-gaokun3-el2` **版本串不同**。
 > 若要直接替换，需在 §4.5 前追加应用 `patches/el2/*` 并把 `LOCALVERSION` 设为 `-gaokun3-el2`。
