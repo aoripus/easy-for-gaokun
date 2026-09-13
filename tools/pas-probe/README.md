@@ -90,5 +90,20 @@ gkpas iommu_secure_ptbl_size(1)                         = 0
    `MP_VIDEO_VAR` 无论如何都不通 —— 本机的视频安全世界通路是**"认账不干活"**的。
    这正是与已知可用设备（X13s）最明确的差异。
 
+7. **CP 参数取值不是原因【已核实】**：连同从 Windows 驱动 `qcdxkm8280.sys` 逆向出的两套
+   静态参数表一起测，共 6 组（`0x20A` 分支的 `0x25800000 / 0x01000000 / 0x24800000`、
+   其它芯片的 `0x60000000 / 0x01000000 / 0x02800000`，以及若干变体）**全部返回 `-5`**。
+   正反两个方向得出同一结论。参数表与 Windows 侧 ABI 详见
+   [`../../docs/windows-video-tz-interface.md`](../../docs/windows-video-tz-interface.md)。
+
+8. **本机存在 `qcomtee` 平台设备【已核实】—— 目前最有价值的待查方向。**
+   `/sys/bus/platform/devices/qcomtee` **存在**（但没有 `/dev/qcomtee` 字符设备节点）。
+   关键在于 `qcom_scm.c` 的 `qcom_scm_qtee_init()` 只在 `qcom_scm_qtee_invoke_smc()`
+   **不返回 `-EIO`** 时才注册该设备 —— 所以**本机 TrustZone 的 QTEE 通路是通的**，
+   而 Windows 恰恰是经 **QTEE（TrEE）IOCTL** 而不是 SIP SMC 去驱动视频核的，
+   并且它在视频核初始化时调用了 **Linux 侧完全没有**的 TZ 子系统状态函数
+   （`TZ_SUBSYS_STATE_RESUME`、`TZ_SUBSYS_STATE_VENUS_RESTORE_THRESHOLD`，subsys = 9）。
+   下一步应尝试经 `qcomtee` 复刻这些调用。
+
 完整背景、逐寄存器证据与排除性实验见
 [`patches/iris-el2/README.md`](../../patches/iris-el2/README.md)。
