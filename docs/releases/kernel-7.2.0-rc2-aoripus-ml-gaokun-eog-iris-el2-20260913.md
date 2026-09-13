@@ -59,19 +59,22 @@ qcom-venus aa00000.video-codec: fail to load video firmware
 
 ## 产物
 
-| 文件 | 说明 | 字节 |
-|---|---|---:|
-| `Image` | 内核映像（arm64，未压缩，供 systemd-boot 直接加载） | 24,730,112 |
-| `sc8280xp-huawei-gaokun3.dtb` | 标准设备树 | 170,594 |
-| `sc8280xp-huawei-gaokun3-el2.dtb` | EL2 叠加变体，与当前运行的基线内核同构 | 170,764 |
-| `modules-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+.tar.zst` | 359 个内核模块，含 `qcom-iris.ko` | 4,982,268 |
-| `config-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | 完整 `.config` | 209,244 |
-| `System.map-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | 符号表 | 4,706,748 |
-| `vmlinux-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | 未压缩 ELF，供调试 | 31,092,856 |
-| `modules.builtin` / `modules.order` | 模块拓扑 | 9,823 / 10,456 |
-| `BUILD-PROVENANCE.md` | 构建溯源与复现步骤（GPL-2.0 源码提供要求） | 3,003 |
-| `git-log-patched-tree.txt` | 打过补丁的源码树提交记录 | 1,300 |
-| `sha256sums.txt` | 全部产物的 SHA-256 | 986 |
+SHA-256 列为前 16 位，完整值见 `sha256sums.txt`。
+
+| 文件 | 说明 | 字节 | SHA-256（前 16 位） |
+|---|---|---:|---|
+| `Image` | 内核映像（arm64，未压缩，供 systemd-boot 直接加载） | 24,730,112 | `ca54a5bdb4611170` |
+| `sc8280xp-huawei-gaokun3.dtb` | 标准设备树 | 170,694 | `337902cea29fa0ce` |
+| `sc8280xp-huawei-gaokun3-el2.dtb` | EL2 叠加变体，与当前运行的基线内核同构 | 170,967 | `b65aac1557a4198d` |
+| `modules-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+.tar.zst` | 359 个内核模块，含 `qcom-iris.ko` | 4,998,787 | `c201a89c3765d51b` |
+| `config-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | 完整 `.config` | 209,244 | `c37d7dc5083cda69` |
+| `System.map-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | 符号表 | 4,706,864 | `e2947b981f627851` |
+| `vmlinux-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | 未压缩 ELF，供调试 | 31,093,040 | `0b412ca788176c27` |
+| `modules.builtin` / `modules.order` | 模块拓扑 | 9,823 / 10,456 | `e98dce0d217fe52e` / `e545381745c71052` |
+| `modules.builtin.modinfo` | 内置模块元信息（供 `modinfo` 与内置模块固件查找使用） | 118,595 | `f6c3be1c72eed3bf` |
+| `BUILD-PROVENANCE.md` | 构建溯源与复现步骤（GPL-2.0 源码提供要求） | 3,499 | `21c8ade36835b012` |
+| `git-log-patched-tree.txt` | 打过补丁的源码树提交记录 | 1,269 | `97c43d106f7ea938` |
+| `sha256sums.txt` | 全部产物的 SHA-256 | 1,076 | `bdd6602ee356f2d1` |
 
 ## 安装
 
