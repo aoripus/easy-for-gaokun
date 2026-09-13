@@ -1,0 +1,179 @@
+name: 缺陷报告
+description: 报告 HUAWEI MateBook E Go 2022 性能版（GK-W76 / 设备树 gaokun3）上的故障
+title: "[缺陷] "
+labels:
+  - bug
+body:
+  # --------------------------------------------------------------------------
+  # 前置说明：本项目只支持一个机型、一个基线镜像
+  # --------------------------------------------------------------------------
+  - type: markdown
+    attributes:
+      value: |
+        **提 issue 前请先读** [CONTRIBUTING.md 的「报告问题前」](https://github.com/aoripus/easy-for-gaokun/blob/main/CONTRIBUTING.md#报告问题前)。
+
+        - 本项目**只支持 2022 性能版**（Snapdragon 8cx Gen 3 / SC8280XP / 设备树 `gaokun3`）。
+          2022 LTE 版（8cx Gen 2 / SC8180X / `gaokun2`）与 2023 降频版**不受支持** ——
+          若不是本变体，请改用「其他硬件变体」模板。
+        - 本项目**只支持社区基线镜像** `KawaiiHachimi/linux-gaokun-buildbot` 的
+          release `ubuntu26.04-7.1.0-rc3-gaokun3+el2-20260514004329`。
+          **官方 Ubuntu ISO 在这台机器上无法启动**，基于官方 ISO 的报告不予处理。
+        - 下列四项证据**全部必需**，缺任意一项都无法开始定位。
+
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已阅读 CONTRIBUTING.md 的「报告问题前」，并按该节完成自检
+          required: true
+        - label: 我确认这台机器是 2022 性能版（设备树 compatible 含 huawei,gaokun3），不是 LTE 版或 2023 版
+          required: true
+        - label: 我使用的是本项目支持的基线镜像（社区 buildbot 镜像），不是官方 Ubuntu ISO
+          required: true
+        - label: 下列四项证据均为实际输出，未经过删改或臆造
+          required: true
+
+  # --------------------------------------------------------------------------
+  # ① 机型三判据
+  # --------------------------------------------------------------------------
+  - type: textarea
+    id: device_tree_compatible
+    attributes:
+      label: ①-a 设备树 compatible
+      description: |
+        运行下面这条命令，把**完整输出**粘进来（这是最可靠的机型判据）：
+
+        ```bash
+        tr '\0' '\n' < /proc/device-tree/compatible
+        ```
+
+        2022 性能版应为 `huawei,gaokun3` + `qcom,sc8280xp`；
+        2022 LTE 版会是 `gaokun2` / `sc8180x`。
+      placeholder: |
+        huawei,gaokun3
+        qcom,sc8280xp
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: cpu_max_freq
+    attributes:
+      label: ①-b 大核最高频率
+      description: |
+        运行下面这条命令，把输出粘进来（区分 2022 性能版与 2023 降频版的决定性判据）：
+
+        ```bash
+        cat /sys/devices/system/cpu/cpu4/cpufreq/cpuinfo_max_freq
+        ```
+
+        判读：`2995200`（3.0 GHz）= 2022 性能版（本项目目标）；
+        `~2690000`（约 2.69 GHz）= 2023 版，**不受支持**。
+        cpu4–7 属同一簇，读 cpu7 亦可。
+      placeholder: "2995200"
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: preflight_output
+    attributes:
+      label: ①-c scripts/00-preflight.sh 的完整输出
+      description: |
+        在仓库根目录运行（只读，不改系统状态），把**完整输出**粘进来：
+
+        ```bash
+        sudo ./scripts/00-preflight.sh
+        ```
+      placeholder: 粘贴前检脚本的完整输出（含面板与触屏枚举结果）
+      render: shell
+    validations:
+      required: true
+
+  # --------------------------------------------------------------------------
+  # ② 内核版本
+  # --------------------------------------------------------------------------
+  - type: textarea
+    id: uname
+    attributes:
+      label: ② uname -a
+      description: |
+        运行下面这条命令，把输出粘进来：
+
+        ```bash
+        uname -a
+        ```
+
+        若跑的是本项目发布的内核，请再附上 `uname -r` 的原文与对应的 Release tag
+        （形如 `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913`）。
+      placeholder: Linux ... 7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3 ...
+      render: shell
+    validations:
+      required: true
+
+  # --------------------------------------------------------------------------
+  # ③ 诊断报告
+  # --------------------------------------------------------------------------
+  - type: textarea
+    id: report_output
+    attributes:
+      label: ③ scripts/90-report.sh 的完整报告
+      description: |
+        生成报告并**完整粘贴**（内容较长时先存成文件再作为附件上传）：
+
+        ```bash
+        sudo ./scripts/90-report.sh > gaokun-report.txt
+        ```
+
+        没有这份报告的 issue 无法定位。
+      placeholder: 粘贴 gaokun-report.txt 的内容，或用附件上传
+      render: shell
+    validations:
+      required: true
+
+  # --------------------------------------------------------------------------
+  # ④ 复现步骤
+  # --------------------------------------------------------------------------
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: ④ 复现步骤
+      description: |
+        请写清楚三件事：**做了什么**（逐条命令或操作）、**预期是什么**、**实际是什么**。
+        现象是稳定复现还是偶发？开机就有，还是某个操作之后才出现？
+      placeholder: |
+        1. 做了什么：……
+        2. 预期：……
+        3. 实际：……
+        4. 复现概率：每次 / 偶发（约 N 次中 M 次）
+    validations:
+      required: true
+
+  # --------------------------------------------------------------------------
+  # 附加信息（可选）
+  # --------------------------------------------------------------------------
+  - type: dropdown
+    id: subsystem
+    attributes:
+      label: 受影响的子系统（可选，便于归类）
+      options:
+        - 引导 / 双系统安装（systemd-boot、ESP、分区）
+        - 显示与背光
+        - 触屏
+        - 音频
+        - 内核构建产物（Image / DTB / 模块包）
+        - 其他（请在下方说明）
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 附加信息（可选）
+      description: |
+        例如相关 `dmesg` 片段（`sudo dmesg | grep -i <关键词>`）、
+        已经尝试过的处置与结果、`loader.conf` / BLS 条目的当前状态。
+        **注意：不要粘贴凭据、序列号等个人敏感信息。**
+    validations:
+      required: false
