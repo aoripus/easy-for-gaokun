@@ -308,7 +308,7 @@ easy-for-gaokun/
 > `Makefile`、`package.json`、`.editorconfig`、`.pre-commit-config.yaml` 等。
 > **本地自检**：`make check`（等价于 CI 的六个 job）。
 
-> 目录中部分内容**仍在陆续落地**，当前进度以本文件 §2 的状态表为准。
+目录中部分内容**仍在陆续落地**，当前进度以本文件 §2 的状态表为准。
 > 脚本编号反映**推荐的执行顺序**，不是依赖关系。
 
 ### 4.2 目标流程
