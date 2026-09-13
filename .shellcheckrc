@@ -3,12 +3,19 @@
 #
 # 与 CONTRIBUTING.md「Shell 脚本要求」一致：Bash 5、`set -euo pipefail`、
 # 公共函数复用 scripts/lib/common.sh。
+#
+# ★ 本文件必须由调用方**显式**用 `--rcfile=.shellcheckrc` 传入：
+#   ShellCheck 只在"被检查脚本所在目录"找 .shellcheckrc，脚本位于 scripts/ 与
+#   tools/ 时不会向上找到仓库根。CI、Makefile、npm 脚本与 pre-commit 均已显式传入。
+#
+# ★ 严重级别**不在本文件设置**：实测本版本 ShellCheck 不读取 rcfile 里的 severity，
+#   因此调用方一律显式传 `-S warning`（见上条同一组调用点）。
+#   取 warning 的理由：info/style 级（如 `ls | wc -l` 的 SC2012、`A && B || C` 的
+#   SC2015、`$dir/*.patch` 的 SC2231）与 note 级的 SC2317 在本项目的实机脚本里
+#   属既成风格且大量为误报，逐条改写的风险高于收益；需要时再单独收敛。
 # ============================================================================
 
 shell=bash
-
-# 只报告 warning 及以上：style 级噪音会让实机脚本的检查失去意义
-severity=warning
 
 # 跟随 source：脚本以 `. "$(dirname "$0")/lib/common.sh"` 加载公共库
 external-sources=true
