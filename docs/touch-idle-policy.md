@@ -161,6 +161,12 @@ himax-spi spi0.0: idle: one frame every 30ms after 240 contact-free frames
 即：采样帧上检出真实触点 → 结束空闲并保持中断模式（触点由正常中断路径上报）→
 松手 240 帧（≈2 s）后重新进入空闲。**全程无需 AFE 命令、无需芯片重初始化。**
 
+**r3 正式内核（默认 `idle_enter_frames=7200`）上的复核**【已核实】：`dmesg` 出现两次独立
+`idle exit: touch after 30ms sampling`（t=1138.5 s / 1645.9 s），中间 t=1204.0 s 再次进空闲
+（1138→1204 = 65.5 s，符合 7200 帧 + 开销）；退出后 3 s 窗口 `msmgpio 175` 增量 356（≈118.7 Hz）
+⇒ 已回到 120 Hz 中断模式；`idle_state` = `active=0 frames=2188 threshold=7200 poll_ms=30`（松手后重新计时）。
+**进空闲 → 触摸退出 → 重新计时** 的闭环在发布内核上成立。
+
 **边界与回滚**：面板熄灭/点亮、`inplace_reset`、驱动卸载都会取消 work 并清状态；
 策略默认关闭（`idle_enter_frames=0`），`idle_poll_ms` 可调；安装/回滚走 `scripts/gk-install-kernel.sh`。
 
