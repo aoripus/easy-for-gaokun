@@ -1,0 +1,7 @@
+# patches/spi-gsi/series —— 应用顺序（上游 v1 的两条补丁，必须成对使用）
+#
+# 0001 是 dt-binding（新增 qcom,force-gsi-mode 属性）；
+# 0002 是驱动读取该属性并强制走 GSI 路径。
+# 只打 0002：DT 属性没有 binding 背书；只打 0001：不产生任何行为变化。
+0001-spi-dt-bindings-qcom-spi-geni-qcom-Add-property-to-force-GSI-mode.patch
+0002-spi-qcom-geni-Add-property-to-force-GSI-mode.patch
