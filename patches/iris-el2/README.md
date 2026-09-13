@@ -60,15 +60,20 @@
 | 7 | 上游已知低 IOVA 区间缺陷，且已有 DT 级修复 | `[PATCH 00/22] Restrict lower IOVA range for Venus and Iris VPUs`：VPU 保留 IOVA `[0, 0x25800000)`，越界导致 SMMU 故障甚至重启；含 `sc8280xp: Reserve low IOVA range for Iris` | 【已核实，邮件列表】 |
 | 8 | EL1 才是这类设备的**默认**级别，EL2 是为 KVM 选的 | slbounce（Secure Launch）+ qebspil 才把 Linux 投到 EL2；EL2 的代价正是"hypervisor 不再代管 remoteproc" | 【已核实，slbounce README】 |
 
-### 待查的方向（按性价比排序）
+### 待查方向 —— 已全部关闭（2026-09-13 第四轮）
 
-1. **`MP_VIDEO_VAR` 为何被本机 TZ 拒绝** —— 这是与已知可用设备（X13s）最明确的差异。
-   需要先弄清它是否只是"核没起来"的**症状**（TZ 可能要求子系统已认证就绪才接受 CP 配置），
-   还是**原因**。
-2. **补上低 IOVA 保留** —— 该系列是纯设备树改动（给 iris 节点加一个描述 IOVA 保留区的
-   `memory-region`），成本极低，且上游已确认它会引发 SMMU 故障与重启。
-3. **对照 X13s 的启动环境** —— 特别是 Steev 提到的 "disabling venus module"（确认本机没有
-   venus 绑定）、以及他**未说明**的测试级别与固件来源。
+| 方向 | 结果 |
+|---|---|
+| `MP_VIDEO_VAR` 为何被拒 | **已查清且关闭**：与调用顺序/状态无关（冷状态下作为第一个 SMC 调用仍是 `-5`）；与参数无关（6 组含 Windows 逆向出的两套静态表全部 `-5`）。本机 TZ 就是不接受该 SIP 命令 |
+| 经 `qcomtee`（QTEE）复刻 Windows 的调用 | **源码级否决**：`op` 被掩到 16 位（`0x02000C08` 当场 `-EINVAL`），且"只能调用 QTEE 托管的对象"＝签名 TA。详见 [`docs/windows-video-tz-interface.md`](../../docs/windows-video-tz-interface.md) §8 |
+| 补上低 IOVA 保留 | **仍值得做，但已非阻塞点**：该缺陷导致 SMMU 故障与重启，是解码阶段的问题；本机连核心都没起来。精确补丁已记录在 `docs/windows-video-tz-interface.md` 与上游 v1-7/22 |
+| 改用 EL1 启动 | **不再必要**：X13s 已证明 EL2 下可以跑通，EL1 不是必需 |
+
+**最终结论**：本机视频硬解不可用，根因是**该设备的 TZ 把视频子系统的安全世界支持
+（CP 内存保护 + 子系统状态机）实现在 QTEE + 签名 TA 之后**，Linux 侧够不到。
+Linux 可走的路（寄存器、参数、平台数据、固件代次、调用顺序、QTEE 客户端）**已全部走完**。
+替代方案是软件解码，本机实测 1080p 余量充足，见
+[`docs/software-video-decode.md`](../../docs/software-video-decode.md)。
 
 ### 下方为已被推翻的前一轮结论（保留作记录）
 
