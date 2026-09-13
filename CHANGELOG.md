@@ -6,11 +6,34 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 > **关于内核产物**：本项目的**二进制内核构建**使用独立的标签与 Release，
-> 命名形如 `kernel-<内核 release 串>-<构建日期>`，与源码版本号解耦；
-> Release **标题**另加类别前缀：源码里程碑为 `[工具] vX.Y.Z`，内核构建为 `[内核] <内核 release 串>`。
-> 详见 [README 的「构建产物与发布」](README.md#7-构建产物与发布) 一节。
+> 命名形如 `kernel-<完整内核串>-<YYYYMMDD>`（`<完整内核串>` 即 `uname -r`，
+> 例 `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`），与源码版本号解耦；
+> Release **标题**形如 `Kernel <上游> (<级别>) <VPU大写>[ r<n>]`
+> （例 `Kernel 7.2.5 (EL1) VENUS r1`），源码里程碑仍用 `vX.Y.Z` 的 tag、标题不再加类别前缀。
+> 完整字段定义、派生落点与 `r<n>` 裁决规则见
+> [README 的「构建产物与发布」](README.md#7-构建产物与发布) 一节。
 
 ## [未发布]
+
+### 变更
+
+- **内核产物命名规范定稿（自 `r1` 起生效）。** 内核串改为
+  `<上游>-aoripus-ml-gaokun3-eog-<级别>-<VPU驱动>-r<n>`（例
+  `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`），Release tag 统一为
+  `kernel-<完整内核串>-<YYYYMMDD>`，Release 标题为
+  `Kernel <上游> (<级别>) <VPU大写>[ r<n>]`。相对旧串新增 `gaokun3`、级别、VPU 驱动与 `r<n>`
+  四个字段 —— `gaokun` 改为 `gaokun3` 是因为 `gaokun2` 是 8cx Gen 2（SC8180X），极易混淆。
+  两处语义澄清：`ml` 明确指 kernel.org **stable** 树；`venus`/`iris` 是
+  **VPU（视频编解码单元）驱动，不是 GPU 驱动**（GPU 是 Adreno 690 / freedreno / Turnip）。
+  字段定义、机器侧派生与 `r<n>` 裁决规则见
+  [README 的「构建产物与发布」](README.md#7-构建产物与发布)。
+- **`CONFIG_LOCALVERSION_AUTO` 一律关闭。** 该选项会在源码树非 pristine（无 tag / 有未提交
+  改动）时给内核串追加 `+`，使同一份逻辑源码在 clean 与 dirty 两种状态下派生出两个不同的
+  `/lib/modules/<串>/`、initrd 名与 systemd-boot 条目名。构建脚本已在配置阶段关闭并断言，
+  编译后再复核内核串不含 `+`。
+- **日期不再进入内核串。** 内核串决定机器侧全部落点名（模块目录、`/boot/*-<串>`、BLS 条目名、
+  ESP 目录名），日期只出现在 Release tag 里；否则每天都会产生一个新模块目录。
+- **历史两次内核构建（IRIS EL2、VENUS EL1）的 tag 与内核串保持不变**，按新规范追溯记为 `r0`。
 
 ### 修复
 
