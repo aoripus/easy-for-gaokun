@@ -1,0 +1,18 @@
+# ============================================================================
+# easy-for-gaokun — ShellCheck 配置
+#
+# 与 CONTRIBUTING.md「Shell 脚本要求」一致：Bash 5、`set -euo pipefail`、
+# 公共函数复用 scripts/lib/common.sh。
+# ============================================================================
+
+shell=bash
+
+# 只报告 warning 及以上：style 级噪音会让实机脚本的检查失去意义
+severity=warning
+
+# 跟随 source：脚本以 `. "$(dirname "$0")/lib/common.sh"` 加载公共库
+external-sources=true
+source-path=scripts/lib
+
+# 动态 source 的路径无法静态解析（dirname $0），这是本仓库的既定写法
+disable=SC1090,SC1091
