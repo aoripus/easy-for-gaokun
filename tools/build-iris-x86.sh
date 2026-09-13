@@ -6,7 +6,7 @@
 # 不跑 modules_install、不动 efibootmgr。
 #
 # 用法：
-#   GK_LOCALVERSION="-aoripus-ml-gaokun-eog-iris-el2" ./build-iris-x86.sh
+#   GK_LOCALVERSION="-aoripus-ml-gaokun3-eog-el2-iris-r1" ./build-iris-x86.sh
 #   （不设该变量则用脚本内默认值）
 #
 # 修订记录
@@ -17,7 +17,7 @@
 set -u
 BASE=/root/gaokun
 VER="${GK_KVER:-7.2-rc2}"
-LOCALVER="${GK_LOCALVERSION:--aoripus-ml-gaokun-eog-iris-el2}"
+LOCALVER="${GK_LOCALVERSION:--aoripus-ml-gaokun3-eog-el2-iris-r1}"
 TARBALL=$BASE/linux-$VER.tar.gz
 SRC=$BASE/linux
 OUT=$BASE/out-$VER
@@ -168,6 +168,13 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 make O="$OUT" ARCH=arm64 gaokun3_defconfig >/dev/null || die "gaokun3_defconfig 失败"
 CFG="$SRC/scripts/config"
 "$CFG" --file "$OUT/.config" --set-str LOCALVERSION "$LOCALVER"
+# 必须关闭 CONFIG_LOCALVERSION_AUTO：AUTO 在源码树非 pristine（无 git tag、或工作区
+# 有未提交改动）时会给内核串追加一个 "+"。同一份逻辑源码在 clean / dirty 两种状态下
+# 于是得到两个不同的内核串，进而派生出两个不同的 /lib/modules/<串>/ 目录、
+# initrd 名与 BLS 条目名，破坏可复现性，也让发布 tag 与产物对不上号。
+# 注意：本操作是 --disable（不是 --set-val ... n），最终 .config 里应出现
+# "# CONFIG_LOCALVERSION_AUTO is not set"。
+"$CFG" --file "$OUT/.config" --disable LOCALVERSION_AUTO
 "$CFG" --file "$OUT/.config" --module  VIDEO_QCOM_IRIS
 "$CFG" --file "$OUT/.config" --disable VIDEO_QCOM_VENUS
 # 交叉编译没有构建机的签名密钥，关掉模块签名与可信密钥，否则会报缺证书
@@ -181,9 +188,13 @@ echo "--- 关键配置 ---"
 grep -E "VIDEO_QCOM_(IRIS|VENUS)|CONFIG_LOCALVERSION=|^CONFIG_MODULE_SIG|SYSTEM_TRUSTED_KEYS|QCOM_TZMEM|QCOM_SCM" "$OUT/.config"
 grep -q "^CONFIG_VIDEO_QCOM_IRIS=m" "$OUT/.config" || die "CONFIG_VIDEO_QCOM_IRIS 不是 m"
 grep -q "^CONFIG_VIDEO_QCOM_VENUS=" "$OUT/.config" && die "CONFIG_VIDEO_QCOM_VENUS 仍被设置"
+# olddefconfig 已跑完，此处复核 AUTO 确实处于关闭态。scripts/config 的 --state 在
+# "未被设置"时返回空串（即非 y 也非 n），故优先按 .config 里的字面行断言。
+grep -q '^# CONFIG_LOCALVERSION_AUTO is not set$' "$OUT/.config" \
+  || die "CONFIG_LOCALVERSION_AUTO 未关闭（.config 中缺少 '# CONFIG_LOCALVERSION_AUTO is not set'），内核串会被追加 '+' 而破坏可复现性"
 echo "配置校验通过"
 echo "--- 目标 release 串 ---"
-cat "$OUT/include/config/kernel.release"
+cat "$OUT/include/config/kernel.release" 2>/dev/null || echo "（kernel.release 尚未生成，编译后复核）"
 
 step "7. 编译 Image modules dtbs"
 ccache -z >/dev/null 2>&1
@@ -195,6 +206,14 @@ echo "make 退出码: $rc  结束: $(date -Is)"
 step "8. 产物与断言"
 if [ "$rc" -eq 0 ]; then
   echo "--- 内核 release 串 ---"; cat "$OUT/include/config/kernel.release"
+  # ★ 复现性红线：内核串尾不得有 "+"。那个 "+" 是 CONFIG_LOCALVERSION_AUTO 在源码树
+  # 非 pristine（无 tag / 有未提交改动）时的追记符，会让同一份逻辑源码在 clean 与 dirty
+  # 两种状态下派生出两个不同的 /lib/modules/<串>/、initrd 名与 BLS 条目名。
+  KREL=$(cat "$OUT/include/config/kernel.release")
+  case "$KREL" in
+    *"+"*) die "内核串 '$KREL' 含 '+'：CONFIG_LOCALVERSION_AUTO 未真正关闭，模块目录会随源码树 clean/dirty 漂移" ;;
+  esac
+  echo "内核串自检通过：$KREL（不含 '+'）"
   echo "--- 关键产物 ---"
   ls -l "$OUT/arch/arm64/boot/Image"
   ls -l "$OUT/drivers/media/platform/qcom/iris/qcom-iris.ko"
