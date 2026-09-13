@@ -224,12 +224,14 @@ int venus_boot(struct venus_core *core)
 2. **补丁集**：**移除/不应用** `patches/media/0006-arm64-dts-qcom-sc8280xp-Add-Venus.patch`
    （否则它会建出一个 venus 节点，与上游 `iris` 节点在同一地址冲突）。
 3. **设备树**：在 gaokun3 板级 DTS 加
+
    ```dts
    &iris {
    	firmware-name = "qcom/sc8280xp/HUAWEI/gaokun3/qcvss8280.mbn";
    	status = "okay";
    };
    ```
+
 4. **固件**：`qcvss8280.mbn` 已随镜像提供（`/lib/firmware/qcom/sc8280xp/HUAWEI/gaokun3/`）。
    若 HUAWEI 版不被接受，可试 X13s 的 `qcom/sc8280xp/LENOVO/21BX/qcvss8280.mbn`（同 SoC）。
 5. **顺带**：把 `gpio174` 触屏修复（见 [`patches/`](../patches/)）一并编进同一份 DTB。
