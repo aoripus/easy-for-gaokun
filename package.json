@@ -1,0 +1,32 @@
+{
+  "name": "easy-for-gaokun",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HUAWEI MateBook E Go 2022 性能版（GK-W76 / SC8280XP）的 Ubuntu 适配工程：诊断脚本、内核补丁与实机结论",
+  "homepage": "https://github.com/aoripus/easy-for-gaokun#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoripus/easy-for-gaokun.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aoripus/easy-for-gaokun/issues"
+  },
+  "license": "GPL-2.0-only",
+  "scripts": {
+    "lint:md": "markdownlint-cli2 \"**/*.md\"",
+    "lint:yaml": "yamllint -c .yamllint.yml .",
+    "lint:sh": "shellcheck -x scripts/*.sh scripts/lib/*.sh tools/*.sh",
+    "lint:py": "ruff check tools/",
+    "patches": "bash scripts/check-patches.sh",
+    "commitlint": "commitlint --edit",
+    "check": "npm run lint:md && npm run lint:sh && npm run lint:py && npm run lint:yaml && npm run patches"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0",
+    "markdownlint-cli2": "^0.17.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
