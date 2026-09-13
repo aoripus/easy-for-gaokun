@@ -7,6 +7,66 @@
 
 ---
 
+## 0. 命名规范与历史构建的关系（★ 务必先读）
+
+### 0.1 内核串命名规范（2026-09-13 定稿生效）
+
+```
+uname -r = <上游>-aoripus-ml-gaokun3-eog-<级别>-<VPU驱动>-r<n>
+本内核   = 7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1          （41 字符）
+tag      = kernel-<完整内核串>-<YYYYMMDD>
+标题     = Kernel <上游> (<级别>) <VPU大写>[ r<n>]
+```
+
+| 字段 | 含义 |
+|---|---|
+| `ml` | 源码树是 **kernel.org stable 树**（**不是** mainline master、**不是**发行版内核） |
+| `gaokun3` | 设备树代号，**不用 `gaokun`** —— `gaokun2` = 8cx Gen 2 / SC8180X，极易混淆 |
+| `eog` | MateBook E Go |
+| `<级别>` | `el1` / `el2` |
+| `<VPU驱动>` | `venus` / `iris` —— **VPU 视频编解码单元，不是 GPU**（GPU 是 Adreno 690 / freedreno / Turnip） |
+| `r<n>` | 修订号，从 `r1` 起；作用域 = **同一上游版本 + 同一级别 + 同一 VPU 驱动** |
+
+**日期只进 Release tag，不进内核串**——内核串决定机器侧的全部落点名：
+`/lib/modules/<内核串>/`、`/boot/*-<内核串>`、systemd-boot 条目名与 ESP 目录名
+（见 `scripts/gk-install-kernel.sh:76-77`）；日期若进内核串，每天都会产生一个新模块目录。
+
+### 0.2 ★ 本文实测记录使用**旧串**，自 `r1` 起才用新串（不改写历史）
+
+本文**已经实机验证的那一次构建**，其真实 `uname -r` 是：
+
+```
+7.2.5-aoripus-ml-gaokun-eog-el1+          ← 旧命名，按新规范追溯记为 r0
+```
+
+该串与本文的实测数据（`Image` 大小、venus 解码器、触屏 IRQ 计数等）**逐字对应，不作改写**，
+以保证可追溯。旧串相对新规范有三处差异：`gaokun` 应为 `gaokun3`；缺 VPU 驱动字段；缺 `r<n>` 修订号。
+
+| | 旧命名（**已实测的那次构建，r0**） | 新规范（自 `r1` 起） |
+|---|---|---|
+| 内核串 | `7.2.5-aoripus-ml-gaokun-eog-el1+` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1` |
+| `CONFIG_LOCALVERSION` | `-aoripus-ml-gaokun-eog-el1` | `-aoripus-ml-gaokun3-eog-el1-venus-r1` |
+
+> ⇒ **§3 的配方与 §6 的配置表自本规范起使用新串**；照 §3 复现得到的是
+> `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`，与 r0 那次的实测记录**不同串**，
+> 属预期（修订号已推进），不是文档矛盾。r0 的产物与实测结论仍然有效，
+> 但**不要**指望用旧串复现出逐字节相同的产物 —— 旧串是 `CONFIG_LOCALVERSION_AUTO` 尚未关闭时的产物，
+> 已不可再生（见 §0.3）。
+
+### 0.3 `CONFIG_LOCALVERSION_AUTO` 必须关闭（★ 复现性红线）
+
+旧串结尾那个 **`+`** 正是 `CONFIG_LOCALVERSION_AUTO=y` 在"源码树非干净 / 无 tag"时的追记符。
+危害：同一份逻辑源码在 clean / dirty 两种状态下会产生**两个不同的 `/lib/modules/` 目录**，
+发布串不可复现，装机与模块加载会踩空。
+
+⇒ 配方中必须 `scripts/config --disable LOCALVERSION_AUTO`，最终 `.config` 必须出现：
+
+```
+# CONFIG_LOCALVERSION_AUTO is not set
+```
+
+---
+
 ## 1. 为什么是这个组合
 
 | 决策 | 理由 |
@@ -58,7 +118,8 @@ cd linux-el1-$VER && git init -q -b main && git add -A && git commit -qm "linux-
 export ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
 make O=$BASE/out-el1-$VER ARCH=arm64 gaokun3_defconfig
 CFG=scripts/config
-$CFG --file $BASE/out-el1-$VER/.config --set-str LOCALVERSION "-aoripus-ml-gaokun-eog-el1"
+$CFG --file $BASE/out-el1-$VER/.config --set-str LOCALVERSION "-aoripus-ml-gaokun3-eog-el1-venus-r1"
+$CFG --file $BASE/out-el1-$VER/.config --disable LOCALVERSION_AUTO  # ★ 否则内核串尾会多出 "+"，见 §0.3
 $CFG --file $BASE/out-el1-$VER/.config --disable VIDEO_QCOM_IRIS   # ★ 见 §5 的静默陷阱
 $CFG --file $BASE/out-el1-$VER/.config --module  VIDEO_QCOM_VENUS
 $CFG --file $BASE/out-el1-$VER/.config --module  SM_VIDEOCC_8350
@@ -157,6 +218,9 @@ done
 grep -q '^CONFIG_VIDEO_QCOM_VENUS=m' out/.config
 grep -q '^# CONFIG_VIDEO_QCOM_IRIS is not set' out/.config
 grep -c 'qcom,sm8350-venus' drivers/media/platform/qcom/venus/core.c   # 应为 1
+grep -q '^# CONFIG_LOCALVERSION_AUTO is not set' out/.config           # ★ 见 §0.3
+case "$(cat out/include/config/kernel.release)" in *"+"*)              # ★ 串尾不得有 "+"
+  echo "内核串含 +，不可复现";; esac
 ```
 
 **产物 DTB 断言**（EL1 DTB 必须干净）：
@@ -181,7 +245,8 @@ grep -aq 'broken-reset'    $DTB && echo "不该有（EL2 专属）"
 | `CONFIG_I2C_HID_OF` | `m` | 触屏"路线 A"（上游 I²C-HID 描述）时需要 |
 | `CONFIG_VIDEO_QCOM_CAMSS` | `m` | 摄像头（板级 DTS 里已启用） |
 | `CONFIG_QCOM_TZMEM_MODE_SHMBRIDGE` | `y` | SHM bridge；EL1 下由 hypervisor 代管，但仍需编入 |
-| `CONFIG_LOCALVERSION` | `-aoripus-ml-gaokun-eog-el1` | 发布串命名规范 |
+| `CONFIG_LOCALVERSION` | `-aoripus-ml-gaokun3-eog-el1-venus-r1` | 见 §0.1 命名规范（r1 起）；r0 那次的实测产物用的是旧串 `-aoripus-ml-gaokun-eog-el1` |
+| `CONFIG_LOCALVERSION_AUTO` | **必须 not set** | 见 §0.3；否则内核串尾多出 `+`，模块目录随源码树 clean/dirty 漂移 |
 
 ---
 
