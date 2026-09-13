@@ -385,12 +385,16 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 
 ## 7. 构建产物与发布
 
-本项目有**两类** Release，标签命名刻意分开，避免混用：
+本项目有**两类** Release，标签与标题按类别区分，避免混用：
 
 | 类型 | 标签形如 | 内容 |
 |------|----------|------|
 | **源码里程碑** | [`v0.1.0`](https://github.com/aoripus/easy-for-gaokun/releases/tag/v0.1.0) | 仓库自身状态的快照（GitHub 自动生成源码包）；更新内容见 [`CHANGELOG.md`](CHANGELOG.md) |
 | **内核构建产物** | [`kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913`](https://github.com/aoripus/easy-for-gaokun/releases/tag/kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913) | `Image`、设备树（含 EL2 变体）、模块包、`.config`、`System.map`、`vmlinux`、构建溯源清单与 SHA-256 |
+
+> **标题前缀约定**：Release 的**标题**以类别前缀开头 —— `[工具]` 用于仓库自身的源码里程碑
+> （脚本 / 文档 / 配置），如 `[工具] v0.1.0`；`[内核]` 用于二进制内核构建，如
+> `[内核] 7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+`。标签命名仍按上表规则。
 
 已发布的构建产物：
 
