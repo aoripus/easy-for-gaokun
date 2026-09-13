@@ -392,19 +392,69 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 | **源码里程碑** | [`v0.1.0`](https://github.com/aoripus/easy-for-gaokun/releases/tag/v0.1.0) | 仓库自身状态的快照（GitHub 自动生成源码包）；更新内容见 [`CHANGELOG.md`](CHANGELOG.md) |
 | **内核构建产物** | [`kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913`](https://github.com/aoripus/easy-for-gaokun/releases/tag/kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913) | `Image`、设备树（含 EL2 变体）、模块包、`.config`、`System.map`、`vmlinux`、构建溯源清单与 SHA-256 |
 
-> **标题前缀约定**：Release 的**标题**以类别前缀开头 —— `[工具]` 用于仓库自身的源码里程碑
-> （脚本 / 文档 / 配置），如 `[工具] v0.1.0`；`[内核]` 用于二进制内核构建，如
-> `[内核] 7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+`。标签命名仍按上表规则。
+> **标题约定**：Release **标题**不再加 `[工具]` / `[内核]` 之类的类别前缀。
+> 源码里程碑用 `vX.Y.Z`；二进制内核构建用 `Kernel <上游> (<级别>) <VPU大写>[ r<n>]`，
+> 例 `Kernel 7.2.5 (EL1) VENUS`、`Kernel 7.2.0-rc2 (EL2) IRIS`。标签命名见下表与下节。
 
 已发布的构建产物：
 
-| 标签 | 内容 | 状态 |
-|------|------|------|
-| `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | IRIS 视频硬解试验内核（`CONFIG_VIDEO_QCOM_IRIS=m`，上游 iris 设备树节点） | 编译通过；**未经启动验证** |
+| Release 标题 | 标签 | 内核串（`uname -r`） | 内容 | 状态 |
+|------|------|------|------|------|
+| `Kernel 7.2.0-rc2 (EL2) IRIS` | `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | `7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | IRIS 视频硬解试验内核（`CONFIG_VIDEO_QCOM_IRIS=m`，上游 iris 设备树节点） | **pre-release**；已装机启动验证：EL2 下视频核**无法脱离复位**，硬解不可用 |
+| `Kernel 7.2.5 (EL1) VENUS` | `kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913` | `7.2.5-aoripus-ml-gaokun-eog-el1+` | 自研 mainline stable v7.2.5 + EL1（venus 驱动线） | **Latest**；已实机验证：venus 硬解可用、触屏可用；无 `/dev/kvm` |
+
+> 上表两条是**旧命名**产物（内核串里还没有 `gaokun3` / 级别 / VPU / `r<n>` 四个字段），
+> 按新规范**追溯记为 `r0`**；其 tag 与内核串**保持不变** —— 已发布的 tag 已被外部链接固化，
+> 改名会破坏链接。新规范自 `r1` 起生效。
 
 **为什么内核产物要独立打标签**：同一个源码版本会对应多次内核构建
 （不同 `.config` / 设备树 / 补丁组合，例如"开 IRIS"与"开 Venus"），
 用源码版本号无法区分，必须把「内核 release 串 + 构建日期」写进标签。
+
+### 内核产物命名规范
+
+> 2026-09-13 定稿；**自 `r1` 起生效**。
+
+```text
+uname -r = <上游>-aoripus-ml-gaokun3-eog-<级别>-<VPU驱动>-r<n>
+例       = 7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1        （41 字符）
+tag      = kernel-<完整内核串>-<YYYYMMDD>
+标题     = Kernel <上游> (<级别>) <VPU大写>[ r<n>]
+```
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `<上游>` | 如 `7.2.5` | kernel.org **stable** 树版本；不含 `rc`、不含 `r<n>` |
+| `aoripus` | 固定 | 维护者标识 |
+| `ml` | 固定 | 构建源码树 = kernel.org **stable** 树（**不是** mainline master，**不是**发行版内核） |
+| `gaokun3` | 固定 | 设备树代号（GK-W76 / SC8280XP）。**不用 `gaokun`** —— `gaokun2` 是 8cx Gen 2 / SC8180X，极易混淆 |
+| `eog` | 固定 | 机型系列 MateBook E Go |
+| `<级别>` | `el1` / `el2` | `el1`：视频硬解可用、**无 `/dev/kvm`**；`el2`：有 `/dev/kvm`、**视频核起不来** |
+| `<VPU驱动>` | `venus` / `iris` | 启用的**视频编解码单元（VPU）**驱动线。**VPU 不是 GPU** —— GPU 是 Adreno 690（freedreno / Turnip） |
+| `r<n>` | 从 `r1` 起 | 修订号；作用域 = **同一上游版本 + 同一级别 + 同一 VPU 驱动** |
+
+**机器侧派生**：内核串同时决定 `/lib/modules/<串>/`、
+`/boot/{vmlinuz,initrd.img,dtb,config}-<串>`、systemd-boot 条目名
+`loader/entries/<machine-id>-<串>[-<tag>].conf` 与 ESP 目录 `<machine-id>/<串>[-<tag>]/`
+（实现见 `scripts/gk-install-kernel.sh`）。⇒ **日期只进 Release tag，绝不进内核串**，
+否则每天都会产生一个新的模块目录、每天都要重编。
+
+**强制门禁**：`CONFIG_LOCALVERSION_AUTO` 必须关闭（`.config` 中应为
+`# CONFIG_LOCALVERSION_AUTO is not set`）。该选项会在源码树非 pristine（无 tag / 有未提交改动）时
+给内核串追加 `+`，使同一份逻辑源码在 clean 与 dirty 两种状态下派生出**两个不同的模块目录**，
+发布串不可复现。
+
+**`r<n>` 裁决规则**
+
+| 情形 | 处置 |
+|---|---|
+| 产物语义变化（补丁 / DTB / `.config`） | 重编 → `r+1` → **新 tag** |
+| 内核字节不变（仅说明文档、资产重传） | 内核串与 `r` 都**不动**；优先**就地替换同一 release 的 asset**（tag 不变） |
+| 上游版本升级 | `r` **归零**重排 |
+| 只改 Release 标题 / 说明 | 随时可改，不产生新版本 |
+
+下一版计划：`7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`
+（补上 `spi-geni-qcom` 的 GSI 模式支持，降低触屏中断密度）。
 
 内核产物的构建溯源（源码 tag、补丁集、构建脚本、复现命令）随产物一同发布为
 `BUILD-PROVENANCE.md`，以满足 GPL-2.0 的对应源码要求并保证可复现。
