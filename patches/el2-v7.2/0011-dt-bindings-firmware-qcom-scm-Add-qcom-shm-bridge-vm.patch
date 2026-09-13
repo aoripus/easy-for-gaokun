@@ -1,0 +1,31 @@
+diff --git a/Documentation/devicetree/bindings/firmware/qcom,scm.yaml b/Documentation/devicetree/bindings/firmware/qcom,scm.yaml
+index 25f62bacb..55b4d566e 100644
+--- a/Documentation/devicetree/bindings/firmware/qcom,scm.yaml
++++ b/Documentation/devicetree/bindings/firmware/qcom,scm.yaml
+@@ -113,6 +113,14 @@ properties:
+       Phandle to the memory region reserved for the shared memory bridge to TZ.
+     maxItems: 1
+ 
++  qcom,shm-bridge-vmid:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description:
++      VMID to use as owner of shared memory bridge allocations for TZ.
++      QCOM_SCM_VMID_SELF_OWNER may be used to indicate that the allocations
++      should be self-owned rather than being assigned to a specific VMID.
++      Defaults to QCOM_SCM_VMID_HLOS if not specified.
++
+   qcom,sdi-enabled:
+     description:
+       Indicates that the SDI (Secure Debug Image) has been enabled by TZ
+diff --git a/include/dt-bindings/firmware/qcom,scm.h b/include/dt-bindings/firmware/qcom,scm.h
+index 0d29d8d48..776d2cad6 100644
+--- a/include/dt-bindings/firmware/qcom,scm.h
++++ b/include/dt-bindings/firmware/qcom,scm.h
+@@ -37,4 +37,7 @@
+ #define QCOM_SCM_VMID_OEMVM		0x31
+ #define QCOM_SCM_VMID_CP_ADSP_SHARED	0x33
+ 
++/* Special value intended for qcom,shm-bridge-vmid */
++#define QCOM_SCM_VMID_SELF_OWNER	0xffffffff
++
+ #endif
