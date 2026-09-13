@@ -1,14 +1,19 @@
 # easy-for-gaokun
 
+[![CI](https://github.com/aoripus/easy-for-gaokun/actions/workflows/ci.yml/badge.svg)](https://github.com/aoripus/easy-for-gaokun/actions/workflows/ci.yml)
+[![License: GPL-2.0-only](https://img.shields.io/badge/license-GPL--2.0--only-blue.svg)](LICENSE)
+[![Target device](https://img.shields.io/badge/device-GK--W76%20%2F%20SC8280XP-informational.svg)](#1-目标设备)
+
 **让 HUAWEI MateBook E Go 2022 性能版（GK-W76）在 Ubuntu 上获得完整、开箱即用的体验。**
 
 本仓库面向**单一机型**做深度适配：从设备鉴别、引导配置、外设驱动修复，到桌面平板化与
 Android 容器，目标是把社区内核已经跑通的"能开机"，推进到"能当主力用"。
 
-> **状态：早期适配中；触屏已修复并实机验证通过。** 系统可正常启动并进入 GNOME Wayland 桌面，
-> 显示、背光、电源管理、**触摸输入**与**扬声器增益调优**均已完成并实机验证；
-> 已可在内置盘上实现 **Windows + Ubuntu 双系统**。
-> 剩余缺口见 §2，主要是视频硬解与手写笔；指纹的结论是硬件不可达，见 §2.3。
+> **状态：日常可用。** 系统可正常启动并进入 GNOME Wayland 桌面；显示、背光、电源管理、
+> **触摸输入**、**扬声器增益调优**与**视频硬解（EL1 + venus）**均已实机验证；
+> 已可在内置盘上实现 **Windows + Ubuntu 双系统**，并可安装/回滚**本项目自编内核**（见 §7）。
+> 剩余缺口见 §2：手写笔通道未实现；指纹的结论是**硬件不可达**（§2.3）；
+> EL1 与 KVM 互斥（要 `/dev/kvm` 就得放弃硬解）。
 
 ---
 
@@ -81,8 +86,10 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
 | 电源 | EC 驱动上报电池、充电状态与适配器识别（`gaokun-ec-battery`） |
 | 温度 | CPU / GPU / 外壳热区传感器可读 |
 | 存储 | 内置 NVMe（PCIe）可用 |
-| 虚拟化 | `-el2+` 内核支持 KVM |
+| 虚拟化 | 基线 `-el2+` 内核支持 KVM；**本项目自研的 EL1 内核没有 `/dev/kvm`**（与视频硬解互斥，见 §7） |
 | **触控** | **已修复**：接口模式脚 `gpio174` 置低后，Himax HX83121A 走 SPI 上报通路（见 §2.1） |
+| **视频硬解** | **已可用**：自研 EL1 内核（venus 线）下 venus 解码器/编码器在位，mpv 走 `h264_v4l2m2m`（见 §7 与 [`docs/video-decode.md`](docs/video-decode.md)） |
+| **自研内核** | 已按命名规范发布 `r1`/`r3` 并装机运行；只新增 BLS 条目、可一键回滚（见 §7） |
 | 音频 | 声卡 `SC8280XP-HUAWEI-GAOKUN3` 已注册；**已安装 gaokun3 专用 UCM profile**，功放增益由 X13s profile 的 `12`（−3.00 dB）提到内核限幅上限 `17`（**0.00 dB**，+3.00 dB），见 §2.2 与 [`docs/audio.md`](docs/audio.md) |
 | 网络 | Wi-Fi 与蓝牙均可正常工作 |
 | 双系统 | 内置盘保留 Windows，Ubuntu 装于独立分区，固件引导项可切换（见 §4.3） |
@@ -91,7 +98,8 @@ tr '\0' ' ' < /proc/device-tree/soc@0/display-subsystem@ae00000/dsi@ae94000/pane
 
 | 项目 | 现象 | 优先级 |
 |------|------|:------:|
-| **视频硬解** | `qcom-venus` 拒绝 SC8280XP：固件 `qcvss8280.mbn` 存在但驱动报 `error -22`，内核暂无 8280 支持 | **P1** |
+| **视频硬解（IRIS / EL2 路线）** | 该设备把视频子系统的安全世界支持（CP 内存保护、子系统状态机）放在 QTEE + 签名 TA 之后，Linux 侧不可达 ⇒ **该路线已放弃**；当前改走 EL1 + venus（已可用）。取证见 [`docs/video-decode.md`](docs/video-decode.md) | 不可行 |
+| 触屏空闲功耗 | 空闲策略已把主机侧中断从 120 Hz 压到约 23 Hz，但 **IC 自身仍在以 120 Hz 扫描**（IC 侧功耗未降）；进一步压低需"AFE 深睡 + 盲唤醒"，代价是 30–50 ms 首触延迟 | P3 |
 | 镜像默认项 | 镜像自带 `loader.conf` 的 `default` 指向非 `el2` 条目，该内核在 GUI 阶段卡住 | P1 |
 | 镜像根属主 | 镜像根目录属主为 **uid 1001** 而非 root，导致 `systemd-tmpfiles` 报 100+ 条 `unsafe path transition` | P1 |
 | 手写笔 | Linux 侧**从未实现**笔通道（驱动不声明 `BTN_TOOL_PEN` / `ABS_PRESSURE`） | P2 |
@@ -249,11 +257,12 @@ easy-for-gaokun/
 ├── README.md
 ├── LICENSE
 ├── CONTRIBUTING.md
+├── .github/                 CI、issue/PR 模板、CODEOWNERS、dependabot
 ├── config/                  运行期配置，由脚本安装到系统
 │   └── ucm2/Qualcomm/sc8280xp/HUAWEI-GK-W7X.conf   gaokun3 专用 ALSA UCM2 profile
-├── scripts/                 一键化适配与诊断工具
+├── scripts/                 在目标机上运行的适配与诊断脚本（索引见 scripts/README.md）
 │   ├── lib/common.sh           公共函数库
-│   ├── 00-preflight.sh         设备鉴别与前检（变体判据校验）
+│   ├── 00-preflight.sh         设备鉴别与前检（变体判据校验，只读）
 │   ├── 10-install-dualboot.sh  安装到内置盘（Windows + Ubuntu 双系统）
 │   ├── 20-touchscreen.sh       触屏诊断与修复（gpio174 接口模式）
 │   ├── 30-audio.sh             音频诊断与调优（安装 gaokun3 专用 UCM profile）
@@ -261,16 +270,43 @@ easy-for-gaokun/
 │   ├── 50-display.sh           竖屏与显示配置                     [规划中]
 │   ├── 60-desktop.sh           平板化桌面（屏幕键盘、手势、扩展）  [规划中]
 │   ├── 70-waydroid.sh          Android 容器                       [规划中]
-│   └── 90-report.sh            一键生成诊断报告
-├── tools/                   只读分析工具（解析脚本，不修改系统状态）
-│   └── win-acpi-hive.py        离线解析 Windows SYSTEM hive，读出本机 ACPI 枚举与资源
-├── patches/                 面向上游的内核 / 设备树补丁
-└── docs/                    技术文档
+│   ├── 90-report.sh            一键生成诊断报告（提 issue 用）
+│   ├── gk-install-kernel.sh    安装/回滚本项目自编内核（只新增 BLS 条目）
+│   └── check-patches.sh        补丁序列自检（CI 的 patches job 也调用它）
+├── tools/                   只读分析工具与构建/打包脚本（索引见 tools/README.md）
+│   ├── gk-touch-bench.py       触屏通路量化（报点率 / 帧间隔 / IRQ 效率）
+│   ├── win-acpi-hive.py        离线解析 Windows SYSTEM hive，读出 ACPI 枚举与资源
+│   ├── acpi-devmem-dump.py     从 /dev/mem 读固件 ACPI 表做取证
+│   ├── gaokun-iris-dts-prep.py 前置上游 IRIS 设备树节点（历史路线用）
+│   ├── build-iris-x86.sh       x86_64 交叉编译 arm64 内核（文件名为历史遗留）
+│   ├── mk-release.sh           打包内核产物、生成校验和与溯源清单
+│   └── pas-probe/              向 TrustZone 直接问询 PAS 支持的探针模块
+├── patches/                 内核补丁序列（总索引见 patches/README.md；每序列带 series 顺序）
+│   ├── touch-spi-mode/         设备树：触屏接口模式脚 gpio174 置低（当前内核使用）
+│   ├── spi-gsi/                触屏 SPI 走 GSI / DMA（当前内核使用）
+│   ├── touch-idle/             触屏中断使能修复 + 空闲门控采样（当前内核使用）
+│   ├── el2-v7.2/               EL2 补丁集在 v7.2-rc2 上的适配（历史归档）
+│   └── iris-el2/               IRIS 在 EL2 下的适配（历史归档，路线已放弃）
+└── docs/                    实机结论与治理文档（索引见 docs/README.md）
     ├── install-dualboot.md  双系统安装完整步骤与踩坑记录
     ├── video-decode.md      视频硬解归因与可行路径
     ├── audio.md             音频质量：诊断与调优
-    └── fingerprint.md       指纹可行性调查与结论
+    ├── fingerprint.md       指纹可行性调查与结论
+    ├── touch-idle-policy.md 触屏空闲中断治理
+    ├── kernel-7.2.5-el1-build.md  自研内核构建配方与门禁
+    ├── architecture.md      仓库结构与时序
+    ├── releasing.md         内核发布流程 checklist
+    ├── adr/                 架构决策记录
+    ├── rfc/                 提案
+    ├── releases/            每个内核产物的发布说明（+ `TEMPLATE.md`）
+    └── bench/               基准数据归档
 ```
+
+> 仓库根目录另有工程规范文件：`CONTRIBUTING.md`（贡献与提交规范）、`SECURITY.md`（威胁模型与漏洞上报）、
+> `SUPPORT.md`（支持范围）、`GOVERNANCE.md`（治理）、`MAINTAINERS.md`（维护者）、
+> `CODE_OF_CONDUCT.md`（行为准则）、`CHANGELOG.md`（变更日志），以及工具链配置
+> `Makefile`、`package.json`、`.editorconfig`、`.pre-commit-config.yaml` 等。
+> **本地自检**：`make check`（等价于 CI 的六个 job）。
 
 > 目录中部分内容**仍在陆续落地**，当前进度以本文件 §2 的状态表为准。
 > 脚本编号反映**推荐的执行顺序**，不是依赖关系。
@@ -400,10 +436,12 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 
 | Release 标题 | 标签 | 内核串（`uname -r`） | 内容 | 状态 |
 |------|------|------|------|------|
-| `Kernel 7.2.0-rc2 (EL2) IRIS` | `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | `7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | IRIS 视频硬解试验内核（`CONFIG_VIDEO_QCOM_IRIS=m`，上游 iris 设备树节点） | **pre-release**；已装机启动验证：EL2 下视频核**无法脱离复位**，硬解不可用 |
-| `Kernel 7.2.5 (EL1) VENUS` | `kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913` | `7.2.5-aoripus-ml-gaokun-eog-el1+` | 自研 mainline stable v7.2.5 + EL1（venus 驱动线） | **Latest**；已实机验证：venus 硬解可用、触屏可用；无 `/dev/kvm` |
+| `Kernel 7.2.5 (EL1) VENUS r3` | `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3` | 自研 stable v7.2.5 + EL1 + venus；触屏中断缺陷修复 + 空闲门控采样 | **Latest**；装机复核通过（EL1、venus 解码/编码器、触屏正常；空闲 IRQ 120 → 23 Hz） |
+| `Kernel 7.2.5 (EL1) VENUS r1` | `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1` | 同上，另加触屏 SPI 走 GSI（DMA） | 已发布；滑动实测每帧触屏 IRQ 15.39 → 3.56 |
+| `Kernel 7.2.5 (EL1) VENUS`（旧命名，追溯记 `r0`） | `kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913` | `7.2.5-aoripus-ml-gaokun-eog-el1+` | 首个自研 EL1 内核：打通 venus 硬解与 SPI 触屏 | 已发布；已被 `r1`/`r3` 取代 |
+| `Kernel 7.2.0-rc2 (EL2) IRIS`（旧命名，追溯记 `r0`） | `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | `7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | IRIS 视频硬解试验内核（`CONFIG_VIDEO_QCOM_IRIS=m`，上游 iris 设备树节点） | **pre-release**；EL2 下视频核**无法脱离复位** ⇒ IRIS 路线**已放弃**（见 §2 与 `docs/video-decode.md`） |
 
-> 上表两条是**旧命名**产物（内核串里还没有 `gaokun3` / 级别 / VPU / `r<n>` 四个字段），
+> 上表两条**旧命名**产物（内核串里还没有 `gaokun3` / 级别 / VPU / `r<n>` 四个字段），
 > 按新规范**追溯记为 `r0`**；其 tag 与内核串**保持不变** —— 已发布的 tag 已被外部链接固化，
 > 改名会破坏链接。新规范自 `r1` 起生效。
 
@@ -453,8 +491,11 @@ tag      = kernel-<完整内核串>-<YYYYMMDD>
 | 上游版本升级 | `r` **归零**重排 |
 | 只改 Release 标题 / 说明 | 随时可改，不产生新版本 |
 
-下一版计划：`7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`
-（补上 `spi-geni-qcom` 的 GSI 模式支持，降低触屏中断密度）。
+发布流程（构建 → 门禁 → 打包 → 发布 → 装机复核 → 回滚）已固化为可照做的 checklist：
+见 [`docs/releasing.md`](docs/releasing.md)；发布说明模板见 [`docs/releases/TEMPLATE.md`](docs/releases/TEMPLATE.md)。
+
+下一版候选（尚未排期）：热管理（75 °C 节流）与音频 UCM 纳入内核配套；
+用 Chromium 复核 `V4L2VideoDecoder`；产出"本项目补丁 vs mainline vs pgs666"差异清单。
 
 内核产物的构建溯源（源码 tag、补丁集、构建脚本、复现命令）随产物一同发布为
 `BUILD-PROVENANCE.md`，以满足 GPL-2.0 的对应源码要求并保证可复现。
