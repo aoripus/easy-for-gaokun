@@ -68,8 +68,11 @@
   binding + driver），让触屏 QUP-SPI 走 **GSI（DMA）模式**。本机 DTS 早已写有该属性，
   但 v7.2.5 的驱动不读它、binding 里也没有，此前一直静默退回 FIFO 模式。选 v1 而非 v2 的
   原因：**v2 已被作者本人撤回**（2026-07-14，「keep using the fifo_disabled variable」）。
-  实测（空闲 20 s 窗口）：GENI SE 中断 `998000.spi` 由 **+6,206 降为 0**，改由 `gpi-dma`
-  完成（约 2 次 DMA 中断/次触屏中断），每次触屏中断对应的 SPI 完成中断从 ≈2.59 降到 ≈2.00。
+  **滑动实测**：每帧触屏 IRQ **15.39 → 3.558（−77%）**、CPU 忙 **14.97% → 5.56%（−63%）**、
+  帧间隔 p99 **32.8 → 10.27 ms（−69%）**，报点率与中位帧间隔持平；
+  空闲窗口 GENI SE 中断 `998000.spi` 由 **+6,206 降为 0**，改由 `gpi-dma` 完成
+  （约 2 次 DMA 中断/次触屏中断），且**滑动全程 SE 中断恒为 0**。
+  （早期曾据空闲数据误判"GSI 不影响每帧 IRQ"，已被滑动实测推翻并更正。）
 - 内核产物 **`7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`**：首个按新命名规范发布的 EL1 内核，
   串尾**无 `+`**（构建时移开 `.git`），已实机验证 venus 硬解与触屏均正常。
   发布说明见 [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913.md`](docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913.md)。
