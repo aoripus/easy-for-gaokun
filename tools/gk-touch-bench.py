@@ -203,6 +203,9 @@ def main():
 
     gaps = [1000.0 * (frames[i] - frames[i - 1]) for i in range(1, len(frames))]
     gaps_sorted = sorted(gaps)
+    # 剔除停顿：只累计 < 100 ms 的间隔，得到"真正在触摸中"的有效时长与帧率
+    # （否则中途松手几秒会把 rate_hz 严重拉低，两条通路无法公平比较）
+    active = sum(g for g in gaps if g < 100.0) / 1000.0 if gaps else 0.0
     med = percentile(gaps_sorted, 0.50) if gaps_sorted else float("nan")
     n_long = sum(1 for g in gaps if med == med and g > 2 * med) if gaps_sorted else 0
 
@@ -218,6 +221,8 @@ def main():
         "requested_seconds": args.seconds,
         "frames": n_syn,
         "rate_hz": round(n_syn / dur, 2),
+        "active_seconds": round(active, 3),
+        "rate_active_hz": round((n_syn - 1) / active, 2) if active > 0 else None,
         "gap_ms": {
             "median": round(med, 3) if gaps_sorted else None,
             "p95": round(percentile(gaps_sorted, 0.95), 3) if gaps_sorted else None,
@@ -236,6 +241,7 @@ def main():
     print("\n================ 结果 ================")
     print(f"标签            : {res['label']}")
     print(f"帧数 / 帧率     : {res['frames']} 帧 / {res['rate_hz']} Hz")
+    print(f"有效时长/帧率   : {res['active_seconds']} s / {res['rate_active_hz']} Hz （剔除 >100ms 停顿）")
     print(f"帧间隔 中位/p95 : {res['gap_ms']['median']} / {res['gap_ms']['p95']} ms")
     print(f"         p99/max: {res['gap_ms']['p99']} / {res['gap_ms']['max']} ms")
     print(f"长间隔(>2×中位) : {res['long_gaps']}")
