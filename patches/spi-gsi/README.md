@@ -1,6 +1,7 @@
 # `patches/spi-gsi/` —— 让触屏 QUP-SPI 走 GSI（DMA）模式
 
 > **元数据**（字段定义见 [`patches/README.md`](../README.md)）
+>
 > - **用途**：让触屏的 QUP-SPI 走 **GSI（DMA）** 模式，取代逐字 FIFO 传输
 > - **基线 / Base**：`v7.2.5`（`drivers/spi/spi-geni-qcom.c` 的 pre-image 为 blob
 >   `26e723cfea61ef53068e3f1265430cc3a315e6a3`）
@@ -9,7 +10,6 @@
 > - **是否用于当前发布内核**：✅ 是（自 r1 起）
 > - **验证**：见下「应用与验证」（GENI SE 中断 `998000.spi` 恒为 0、`gpi-dma` 持续增长）
 > - **回滚**：不应用本序列即回到 FIFO 模式（功能可用，但每次触屏中断对应的 SPI 完成中断更多）
-
 
 这两条补丁**不是本项目的原创**，而是 **Pengyu Luo `<mitltlatltl@gmail.com>`**（即 gaokun3
 设备树的上游作者、`right-0903`）投给上游的 v1 系列，本项目**原样携带**以便复现 r1 内核产物。
