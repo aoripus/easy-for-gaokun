@@ -27,10 +27,17 @@
   **VPU（视频编解码单元）驱动，不是 GPU 驱动**（GPU 是 Adreno 690 / freedreno / Turnip）。
   字段定义、机器侧派生与 `r<n>` 裁决规则见
   [README 的「构建产物与发布」](README.md#7-构建产物与发布)。
-- **`CONFIG_LOCALVERSION_AUTO` 一律关闭。** 该选项会在源码树非 pristine（无 tag / 有未提交
-  改动）时给内核串追加 `+`，使同一份逻辑源码在 clean 与 dirty 两种状态下派生出两个不同的
-  `/lib/modules/<串>/`、initrd 名与 systemd-boot 条目名。构建脚本已在配置阶段关闭并断言，
-  编译后再复核内核串不含 `+`。
+- **内核串尾部的 `+`：两个条件缺一不可（实测更正）。** 只关掉 `CONFIG_LOCALVERSION_AUTO`
+  **并不能**去掉 `+` —— 内核串由 `scripts/setlocalversion`（`Makefile` 的
+  `filechk_kernel.release`）生成，当源码树是一个 git 仓库、且 HEAD 不在名为
+  `v$(KERNELVERSION)` 的附注 tag 上时，它在 `AUTO≠y` 的分支里照样打印 `+`。
+  VM 实测对照（两种情况 `.config` 都已是 `# CONFIG_LOCALVERSION_AUTO is not set`）：
+  `.git` 在场 → `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1+`；`.git` 移开 → `…-venus-r1`。
+  因此除 `# CONFIG_LOCALVERSION_AUTO is not set` 之外，**生成内核串时源码树不得带 git 元数据**
+  —— 即发行版的标准做法：从 tarball 解包、不带 `.git` 构建；本项目在 `make` 前把 `.git` 移开、
+  编完再移回。否则同一份逻辑源码会派生出两个不同的 `/lib/modules/<串>/`、initrd 名与
+  systemd-boot 条目名。构建脚本已内建两道断言：配置阶段查 `.config`，编译后查
+  `include/config/kernel.release` 不含 `+`。
 - **日期不再进入内核串。** 内核串决定机器侧全部落点名（模块目录、`/boot/*-<串>`、BLS 条目名、
   ESP 目录名），日期只出现在 Release tag 里；否则每天都会产生一个新模块目录。
 - **历史两次内核构建（IRIS EL2、VENUS EL1）的 tag 与内核串保持不变**，按新规范追溯记为 `r0`。
