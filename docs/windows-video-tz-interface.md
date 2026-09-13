@@ -145,7 +145,58 @@ iommu_set_cp_pool_size(0, 0x60000000)       = -22
 **QTEE 侧**，而 Linux iris 依赖的 SIP SMC 路径并未实现 —— 这既能解释 `-EIO`，
 也能解释"PAS 报告成功但核心不动"。要验证需通过 `qcomtee` 接口复刻第 3、4、5 节的调用。
 
-## 8. 复现方式
+## 8. ★ 终局：为什么 Linux 无法复刻这条通路（源码级否决）
+
+推断（第 7 节）是"本机 TZ 把视频子系统状态机放在 QTEE 侧，Linux 应经 `qcomtee` 去调"。
+**这条路已被源码否决** —— 逐行核对本仓库构建所用的树
+（`drivers/tee/qcomtee/core.c`，qcomtee 由 mainline v6.18 合入）：
+
+```c
+/* core.c:854-859 */
+	/* User can not set bits used by transport. */
+	if (op & ~QCOMTEE_MSG_OBJECT_OP_MASK)      /* GENMASK(15, 0) = 0xffff */
+		return -EINVAL;
+
+	/* User can only invoke QTEE hosted objects. */
+	if (typeof_qcomtee_object(object) != QCOMTEE_OBJECT_TYPE_TEE && ...
+```
+
+**两道门，缺一不可：**
+
+| # | 限制 | 后果 |
+|---|---|---|
+| 1 | `op` 被掩到 16 位（`QCOMTEE_MSG_OBJECT_OP_MASK = GENMASK(15,0)`） | `0x02000C08` / `0x0200010A` 这类值作为 `op` 传入会**当场 `-EINVAL`**。它们本来就是 Windows TrEE ABI 里**请求缓冲 `+0x00`** 处的 TZ 功能号，不是 QTEE 的 object-op |
+| 2 | `User can only invoke QTEE hosted objects` | 只能调用 **QTEE 托管的对象**，即**签名 TA**；没有"按功能号透传到 TZ"的通道 |
+| 3 | root 对象只放行 op 4 / 5 / 8 / 9（`NOTIFY_DOMAIN_CHANGE` / `REG_WITH_CREDENTIALS` / `ADCI_ACCEPT` / `ADCI_SHUTDOWN`），其中 5 还需非 NULL objref | 没有通用透传 op |
+
+**另需注意**：Linux 的 TEE 子系统在本机内核里**根本没编**（`# CONFIG_TEE is not set`），
+所以 `qcomtee` 驱动不存在 —— 平台设备 `qcomtee` 由 `qcom_scm_qtee_init()` 注册了却无驱动可绑，
+自然也没有 `/dev/tee0`。这一点是可修的（`CONFIG_TEE=y` + `CONFIG_QCOMTEE=m`，
+其依赖 `QCOM_SCM=y`、`QCOM_TZMEM_MODE_SHMBRIDGE=y` 本机均已满足），
+**但即使修好也过不了上面那两道门**，故不再投入。
+
+用户态库是公开的（[`qualcomm/quic-teec`](https://github.com/qualcomm/quic-teec)，BSD-3-Clause），
+其 API 为 `qcomtee_object_root_init()` / `qcomtee_object_invoke(obj, op, params, n, &result)`，
+自带的 `unittest -l <TA.mbn> <type> <command>` **需要签名 TA 二进制**，公开仓库并不提供。
+
+## 9. 结论
+
+**本机（gaokun3）的 IRIS 视频硬解无法从 Linux 启用，原因不在 Linux 侧，而在设备专有的安全世界固件。**
+
+与"EL2 固有缺陷"这个已被推翻的早期判断相比，现在的结论有明确的边界：
+同为 SC8280XP 的 X13s 在 EL2 下能跑通（社区实测），说明 EL2 本身不禁止 IRIS；
+本机的失败来自**该设备的 TZ 把视频子系统的安全世界支持（CP 内存保护 + 子系统状态机）
+实现在 QTEE + 签名 TA 之后**，而：
+
+- Linux iris 走的 SIP SMC 路径上，`QCOM_SCM_MP_VIDEO_VAR` 对本机**无条件返回 `-EIO`**
+  （6 组参数、含从 Windows 逆向出的两套静态表，全部一致）；
+- Linux 从不调用 `TZ_SUBSYS_STATE_RESUME` / `TZ_SUBSYS_STATE_VENUS_RESTORE_THRESHOLD`
+  （这两个 Windows 在视频核初始化时必调）；
+- 而 Linux 的 QTEE 客户端在 ABI 层面就**够不到**这些功能（第 8 节两道门）。
+
+因此**不再有 Linux 侧可走的路**。可用的替代是软件解码：
+本机实测 1080p30 H.264 只用约 0.5 个大核（14.2× 余量），详见
+[`software-video-decode.md`](./software-video-decode.md)。
 
 反汇编与定位用的脚本位于虚拟机 `/root/wdrv/scratch/`（只读分析，未入库）。
 关键手法：
