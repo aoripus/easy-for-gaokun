@@ -24,14 +24,43 @@
 
 | 阶段 | 应用本补丁前 | 应用后 |
 |---|---|---|
-| `pas_init_image` | `-22` | 通过 |
-| `pas_auth_and_reset` | `-22` | **通过** |
-| `qcom_scm_mem_protect_video_var` | 未到达 | `-5`（EIO） |
+| `pas_init_image`（认证固件元数据） | `-22` | 通过 |
+| `pas_auth_and_reset`（启动并解复位） | 未到达 | **通过** |
+| `qcom_scm_mem_protect_video_var`（内容保护内存区） | 未到达 | `-5`（EIO），仅 DRM 需要 |
+| `iris_vpu_boot_firmware`（踢核心并等固件应答） | 未到达 | **`-62`（ETIME）** |
 
-即：固件已能认证、核心已能解复位，但最后一步"为视频核心设置受保护内存区"被 TrustZone 拒绝。
-上游 EL2 补丁 0018 的原话是"EL2 下可以认证并启动新固件，但 remoteproc 永远不会真正脱离复位"——
-remoteproc 靠 attach 已运行的实例绕过，视频核心没有 attach 可言。因此**视频硬解在 EL2 下仍不可用**，
-本补丁把失败点从未能加载固件推进到"核心未真正运行"，为后续排查留下了明确边界。
+第四步的失败细节 —— 在 `iris_vpu_boot_firmware()` 前后各读一次寄存器，读数完全一致：
+
+```text
+CTRL_STATUS=0x0                  轮询 1000 次全 0，固件从未置位
+WRAPPER_CORE_POWER_STATUS=0x2    wrapper 有电
+WRAPPER_TZ_CPU_STATUS=0x0        WFI 位为 0 → 核心不在运行/空闲态
+WRAPPER_CORE_CLOCK_CONFIG=0x0
+```
+
+已排除的变量：
+
+- **固件代次**：改用 X13s 的 `qcvss8280.mbn`（2,035,812 B；与本机华为那份 2,035,748 B 仅差
+  64 字节）后结果相同 —— 同样的 `-62`、同样的寄存器读数；
+- **固件内存可达性**：`video-region@86700000`（2.10 GiB，5 MiB）低于 `sm8250_data.dma_mask`
+  （`0xe0000000`）。
+
+**结论**：本补丁把失败点从"固件无法认证"推进到"核心未真正脱离复位"，与上游 EL2 补丁 0018
+的原文一致（"EL2 下可以认证并启动固件，但 remoteproc 永远不会真正脱离复位"）。remoteproc 靠
+`qcom,broken-reset` 跳过复位、attach 已运行的实例绕过；视频核心必须由 Linux 自行启动，没有
+attach 可言 —— 因此 **IRIS 视频硬解在 EL2 下不可用**。要让硬解可用需内核运行在 EL1（下方有
+hypervisor 代管 PAS），而本机固件是把 Linux 直接投到 EL2。
+
+## 实验时的注意事项（踩过的坑）
+
+iris 驱动在**开机阶段**反复 probe 超时（每次约 110 ms，内核会重试多轮）曾把显示子系统
+（`ae00000.display-subsystem`）的探针一起拖到 `-110` 超时并黑屏。做这类实验时应：
+
+1. 在 `/etc/modprobe.d/` 写入 `blacklist qcom_iris`，让系统先正常起来；
+2. 系统起来后再手动 `sudo modprobe qcom_iris` 观察。
+
+这样最坏只挂这一次，重启即回到可用状态；而且此时 journald 已启动，日志能落盘（开机阶段崩溃
+时日志一条都留不下）。
 
 ## 应用方式
 
