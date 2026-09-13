@@ -22,7 +22,55 @@
 
 ---
 
-## ★ 结论（2026-09-13 第二轮寄存器级深挖后确定）
+## ★ 结论（2026-09-13 第三轮：**前一轮结论已被推翻，见下**）
+
+> ### ⚠️ 更正：**EL2 不是阻塞点**
+>
+> 本文件此前给出的"IRIS 在 EL2 下不可用、且不是软件可修复的问题"**已被证伪**，保留原文于下方仅作记录。
+>
+> **决定性反例【社区报告】**：Steev Klimaszewski 在 **Lenovo ThinkPad X13s（同为 SC8280XP）**
+> 上用 iris 驱动实测通过，而且**明确包括 EL2**：
+>
+> > "after disabling venus module otherwise it loads venus not iris. **In el2**, the device seems to be
+> > /dev/video33 … **In el1**, the device becomes /dev/video0"；两种运行级别下 `v4l2-compliance`
+> > 均 48/48 全过；"if I let the video play, **it plays just fine**, however, if I attempt to skip
+> > forward, back, or even play after the video has played, then I see the smmu fault"
+>
+> 来源：<https://lists.openwall.net/linux-kernel/2026/03/27/1695> 、
+> <https://patchew.org/linux/20260312-iris-sc8280xp-v4-0-a047ef1e3c7d@oss.qualcomm.com/>
+>
+> **同为 SC8280XP、同为 EL2，X13s 能跑、本机不能** —— 所以 EL2 本身不禁止 IRIS 工作。
+> 前一轮把"PAS 调用成功但核心不起"归因为 EL2 的固有缺陷是**过度归因**：
+> 上游 `qcom,broken-reset` 那段话描述的是 **DSP 的 remoteproc** 场景，不能直接外推到视频核。
+>
+> **结论修正为**：本机的失败是**设备特有的**，不是架构性的。截至 2026-09-13，最显著的
+> 设备特有差异是 **`qcom_scm_mem_protect_video_var` 被本机 TrustZone 以 `-EIO` 拒绝**
+> （X13s 上这一步必须成功，否则上游 iris 会在此中止）。该差异仍在调查中。
+
+### 本机实测的确定事实（不分轮次，按证据强度排列）
+
+| # | 事实 | 证据 | 置信度 |
+|---|---|---|---|
+| 1 | 固件是 **Gen1** | 上游 master `iris_firmware.c` 的判定算法：`video-firmware.1.x` 即 Gen1；本机固件串为 `QC_IMAGE_VERSION_STRING=video-firmware.1.1-e736ad69…` | 【已核实】 |
+| 2 | 因此 `sm8250_data`（gen1 描述符）是**正确**选择 | 同上；Xilin Wu 的 `sc8280xp_data` 与 `sm8250_data` 的唯一功能差异就是多一个 gen2 描述符 | 【已核实】 |
+| 3 | TrustZone **活着且在认真校验** | `pas_shutdown(9)=0`，而 `pas_shutdown(0/63/100/200/0xffffffff)=-22`；未加载镜像时 `auth_and_reset(9)=-22` | 【已核实，探针模块】 |
+| 4 | TZ **声称**支持视频 PAS 并报告认证复位成功 | `pas_supported(9)=yes`；镜像已加载时 `pas_auth_and_reset(9)=0` | 【已核实，探针模块】 |
+| 5 | 但视频核从不执行 | `CTRL_STATUS` 恒 `0`、`WFI` 位 `0`，90 秒窗口 + 穷举全部可写寄存器 | 【已核实】 |
+| 6 | **`MP_VIDEO_VAR` 被 TZ 拒绝**（本机与 X13s 的关键差异） | 6 组参数全部 `-5`；`SET_CP_POOL_SIZE` 亦 `-22`，但同服务的 `IOMMU_SECURE_PTBL_SIZE` 返回 0 | 【已核实，探针模块】 |
+| 7 | 上游已知低 IOVA 区间缺陷，且已有 DT 级修复 | `[PATCH 00/22] Restrict lower IOVA range for Venus and Iris VPUs`：VPU 保留 IOVA `[0, 0x25800000)`，越界导致 SMMU 故障甚至重启；含 `sc8280xp: Reserve low IOVA range for Iris` | 【已核实，邮件列表】 |
+| 8 | EL1 才是这类设备的**默认**级别，EL2 是为 KVM 选的 | slbounce（Secure Launch）+ qebspil 才把 Linux 投到 EL2；EL2 的代价正是"hypervisor 不再代管 remoteproc" | 【已核实，slbounce README】 |
+
+### 待查的方向（按性价比排序）
+
+1. **`MP_VIDEO_VAR` 为何被本机 TZ 拒绝** —— 这是与已知可用设备（X13s）最明确的差异。
+   需要先弄清它是否只是"核没起来"的**症状**（TZ 可能要求子系统已认证就绪才接受 CP 配置），
+   还是**原因**。
+2. **补上低 IOVA 保留** —— 该系列是纯设备树改动（给 iris 节点加一个描述 IOVA 保留区的
+   `memory-region`），成本极低，且上游已确认它会引发 SMMU 故障与重启。
+3. **对照 X13s 的启动环境** —— 特别是 Steev 提到的 "disabling venus module"（确认本机没有
+   venus 绑定）、以及他**未说明**的测试级别与固件来源。
+
+### 下方为已被推翻的前一轮结论（保留作记录）
 
 > **IRIS 硬件视频编解码在本机（GK-W7X / SC8280XP / EL2）不可用，且不是软件可修复的问题。**
 > 阻塞点是 **EL2 下 PAS/TrustZone 接口不释放子系统复位**，这已由上游 EL2 补丁集的作者
@@ -92,7 +140,53 @@ still succeed, it will just not release the remoteproc from reset.
 补充事实：**加载驱动之前**，两个 GDSC 已是 `0xf8282800`（已上电）、两个 CBCR 已是 `0x221`
 （已使能）—— 视频子系统在开机时就被固件置于上电状态，驱动的"上电"只是空操作。
 
-### 另外两处与 Windows 的差距（同向证据，但不是本次阻塞点）
+### ★ 向 TrustZone 直接问询（探针模块 `tools/pas-probe/`）
+
+前面所有实验都是"从 Linux 这一侧看"。为排除"是不是我们在自说自话"，本项目写了
+一个独立探针模块 `tools/pas-probe/gkpas.c`，把问题直接问到 TrustZone 面前，
+并把调用前后的视频核寄存器逐项列出。实测输出：
+
+```text
+gkpas pas_supported(1)  = yes        # adsp
+gkpas pas_supported(9)  = yes        # ★ 视频核：TZ 明确声称【支持】
+gkpas pas_supported(17) = NO         # slpi 报"不支持"，但 Linux 侧 attach 运行正常
+gkpas pas_supported(18) = yes        # cdsp
+gkpas pas_supported(63) = NO         # 不存在的 ID
+
+gkpas pas_shutdown(9)                                   = 0
+gkpas pas_auth_and_reset(9) [no image loaded]           = -22
+gkpas pas_shutdown(0 / 63 / 100 / 200 / 0xffffffff)     = -22
+
+gkpas mpvv(0x0, 0x25800000, 0x01000000, 0x24800000)     = -5
+gkpas mpvv(0x0, 0x00000000, 0x00000000, 0x00000000)     = -5
+gkpas mpvv(0x0, 0x4b000000, 0x01000000, 0x4a000000)     = -5
+gkpas iommu_set_cp_pool_size(0, 0x25800000)             = -22
+gkpas mpvv(设池之后)                                     = -5
+gkpas iommu_secure_ptbl_size(1)                         = 0
+```
+
+调用前后 23 个视频核寄存器**逐项完全一致**（无任何变化）。
+
+**这组结果的解读（关键）**
+
+1. **TZ 是活的，而且在认真校验。** 不存在的 PAS ID 一律返回 `-22`；未加载镜像就调
+   `auth_and_reset` 也返回 `-22`。所以 PAS 通路**不是盲桩**。
+2. **TZ 对视频 PAS 明确回答"支持"**（`pas_supported(9) = yes`），且
+   `pas_auth_and_reset(9)` 在镜像已加载时返回 **0** —— 即 **TZ 认为自己已经认证并复位了视频核**。
+   但硬件从不动。
+3. **矛盾点正是答案**：`pas_supported(17) = NO`（slpi）而 slpi 在 Linux 侧工作正常；
+   `pas_supported(9) = yes` 而视频核完全不工作。**"TZ 说支持"与"硬件真能跑"在这台设备上
+   是两件互不相干的事** —— 视频核的"支持"只存在于 TZ 的账面上。
+4. **视频内容保护命令被逐条拒绝**：同一个 `QCOM_SCM_SVC_MP` 服务里
+   `IOMMU_SECURE_PTBL_SIZE`(0x03) 返回 0，而 `IOMMU_SET_CP_POOL_SIZE`(0x05) 返回 `-22`、
+   `MP_VIDEO_VAR`(0x08) 对所有参数组合都返回 `-5`（`-EIO` 是 TZ 自己的返回状态字，
+   见 `qcom_scm_mem_protect_video_var()` 的 `return ret ?: res.result[0];`）。
+   说明这台设备的 TZ 固件**没有实现视频 CP 相关的命令**。
+5. 顺带澄清一个容易误判的点：**`pas_shutdown(9)` 返回 0 且寄存器无变化是预期的**，
+   因为发布版 iris 驱动在 `mem_protect_video_var` 失败时已经调用过一次 `pas_shutdown(9)`。
+   不要据此得出"PAS 不碰硬件"的结论。
+
+### 与 Windows 的差距（同向证据，但不是本次阻塞点）
 
 `iris_fw_load()` 的真实顺序是：
 
@@ -128,15 +222,19 @@ Dmitry Baryshkov 的 `[PATCH v1…v7] media: iris: enable SM8350 and SC8280XP su
   （`iommus = <&apps_smmu 0x2a00 0x400>`、`resets`、`power-domains`、`memory-region` 等），
   **所以 DT 侧没有问题，改 DT 不会带来任何改善。**
 
-### 因此：可行的与不可行的
+### 可行与不可行（2026-09-13 第三轮修正后）
 
 | 方案 | 可行性 | 说明 |
 |---|---|---|
-| 改 DTS / 换固件 / 补寄存器 | **无效** | 逐寄存器实测已排除；华为与 X13s 两份 `qcvss8280.mbn` 结果完全相同 |
-| 让内核运行在 EL1（下方保留 Gunyah） | **不可行** | 本机固件把 Linux 直接投到 EL2；需要改 bootloader/固件 |
+| 换 IRIS 平台数据（Xilin Wu 的 `sc8280xp_data`） | **无必要** | 其与 `sm8250_data` 的唯一功能差异是多一个 **gen2** 描述符；本机固件经上游算法判定为 **Gen1** |
+| 换固件（X13s 的 `qcvss8280.mbn`） | **无效** | 本机实测结果逐字节相同 |
+| 在视频核寄存器里继续穷举 | **无效** | 90 秒窗口内全部可写路径已穷尽 |
+| 补上**低 IOVA 保留**（2026-08 系列的 DT 改动） | **值得一试，成本极低** | 纯设备树改动；上游已确认该区间越界会引发 SMMU 故障甚至重启 |
+| 改用 **EL1** 启动（去掉 slbounce/qebspil） | **可行但不是当前首选** | EL1 本就是这类设备的默认级别；但 X13s 已证明 **EL2 也能跑通**，故 EL1 不是必需。代价是失去 KVM |
+| 查清 **`MP_VIDEO_VAR` 被拒** 的原因 | **当前最高优先级** | 这是与已知可用设备（X13s）最明确的差异 |
 | 复刻 Windows 的 TZ 视频服务 | **不可行** | 需要 SMC 功能号与 TZ API 契约，全在闭源签名驱动里 |
-| 上报上游 | **推荐** | 应告知 iris/sc8280xp 系列"DT 可以合并，但硬件在 EL2 下不工作"，避免误导 |
-| 软解 | **推荐** | 当前唯一可用的播放路径；硬解不可得 |
+| 上报上游 | **推荐** | 附本机的逐寄存器证据与 TZ 问询结果，供上游判断 Gen1/Gen2 与 CP 流程 |
+| 软解 | **保底可用** | 在硬解打通前，这是唯一能出画面的路径 |
 
 ---
 
