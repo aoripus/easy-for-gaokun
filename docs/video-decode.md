@@ -7,11 +7,11 @@
 
 ## 1. 结论摘要
 
-1. **这台机器的视频解码单元是 Qualcomm IRIS（Gen1 IP），不是传统 Venus AR50。**
-2. 上游主线**已经**在 `sc8280xp.dtsi` 里加了 `iris` 节点，但 **`sc8280xp-huawei-gaokun3.dts` 从未启用它**（默认 `status = "disabled"`）。
-3. 社区镜像走的是**树外 Venus 补丁**（jhovold 方案），而 **Venus 驱动在这块 IRIS 硬件上设计上就不可能启动成功**。
-4. 内核报的 `error -22 initializing firmware` **不代表固件文件有问题** —— 它是 `venus_boot()` 把任何失败无条件改写成的假象。
-5. **可行路径**：改用主线 `iris` 驱动 + 板级 `&iris { status = "okay"; }`，**照抄 ThinkPad X13s 的写法**（同 SoC，风险最低）。
+1. 这台机器的视频解码单元是 Qualcomm IRIS（Gen1 IP），不是传统 Venus AR50。
+2. 上游主线自 v7.3-rc1 起在 `sc8280xp.dtsi` 里加入 `iris` 节点；v7.1-rc3 与 v7.2-rc2 都没有该节点。`sc8280xp-huawei-gaokun3.dts` 未启用它（默认 `status = "disabled"`）。
+3. 社区镜像走的是树外 Venus 补丁（jhovold 方案），Venus 驱动在这块 IRIS 硬件上无法启动成功（见 §3.1）。
+4. 内核报的 `error -22 initializing firmware` 不表示固件文件有问题 —— 它是 `venus_boot()` 把任何失败无条件改写成的返回值。
+5. 可行路径：改用主线 `iris` 驱动 + 板级 `&iris { status = "okay"; }`，参照 ThinkPad X13s 的写法（同 SoC）。
 
 ---
 
@@ -139,7 +139,7 @@ int venus_boot(struct venus_core *core)
 `venus_firmware_init()` 会设 `core->use_tz = true`，走 **PAS 安全世界**路径，
 元数据被安全世界拒绝 → `-EINVAL`。
 
-> ★ 但**即便把这一段修好，Venus 在这块 IRIS 硬件上依然跑不起来**（见 §3.1）。
+> 但**即便把这一段修好，Venus 在这块 IRIS 硬件上依然跑不起来**（见 §3.1）。
 > 这条线索只是佐证，不是修复方向。
 
 ### 3.5 固件不是问题
