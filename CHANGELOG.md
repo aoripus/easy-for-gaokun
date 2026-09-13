@@ -78,8 +78,15 @@
 - **日期不再进入内核串。** 内核串决定机器侧全部落点名（模块目录、`/boot/*-<串>`、BLS 条目名、
   ESP 目录名），日期只出现在 Release tag 里；否则每天都会产生一个新模块目录。
 - **历史两次内核构建（IRIS EL2、VENUS EL1）的 tag 与内核串保持不变**，按新规范追溯记为 `r0`。
+- **仓库标准化（工程规范落地）。** 新增平台层与治理文件：`.github/`（CI 六个静态检查 job、
+  issue/PR 模板、CODEOWNERS、dependabot）、社区健康文件（`CODE_OF_CONDUCT.md`、`SECURITY.md`、
+  `SUPPORT.md`、`GOVERNANCE.md`、`MAINTAINERS.md`）、工具链（`.editorconfig`、markdownlint /
+  shellcheck / yamllint / ruff 配置、`Makefile`、`npm` 脚本、pre-commit、commitlint）、
+  文档治理（`docs/README.md` 索引、`docs/adr/`、`docs/rfc/`、`docs/style-guide.md`、
+  `docs/glossary.md`、`docs/releasing.md`）、补丁治理（`patches/README.md` 与各序列 `series`）。
+  目标、范围与非目标见 [`docs/rfc/0001-repo-standardization.md`](docs/rfc/0001-repo-standardization.md)。
 
-### 修复
+### 修复（构建与产物）
 
 - **构建：EL2 补丁组被整组丢弃。** `git apply` 一次传多个补丁是原子操作，只要有一个失败就
   一个都不应用，而原脚本在失败后仍继续编译。缺失该组补丁的产物在真机上表现为 adsp / cdsp /
@@ -94,7 +101,7 @@
 - **产物：模块包漏收 `modules.builtin.modinfo`。** 导致设备上 `depmod` 与 `initramfs` 各报
   一条警告，并影响内置模块的固件查找与 `modinfo`。
 
-### 新增
+### 新增（补丁与工具）
 
 - `patches/iris-el2/`：IRIS 视频驱动在 EL2 下的适配 —— 分配 `qcom_scm_pas_context` 并置
   `use_tzmem`，改用 `qcom_scm_pas_prepare_and_auth_reset()`，让 SHM bridge 由 Linux 自己
@@ -114,10 +121,14 @@
   串尾**无 `+`**（构建时移开 `.git`），已实机验证 venus 硬解与触屏均正常。
   发布说明见 [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913.md`](docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913.md)。
 
-### 已知问题
+### 已知问题：视频硬解的 IRIS（EL2）路线 —— 本机不可用，已放弃
 
-- **视频硬解：本机尚未打通；此前"EL2 下不可修复"的判断已被推翻。** 失败表现为
-  `iris_vpu_boot_firmware()` 返回 `-62`（ETIME）：`CTRL_STATUS` 轮询 1000 次恒为 `0`。
+> **适用范围**：本节记录的是 **IRIS / 安全世界 CP 保护**这条路线在本机的取证过程。
+> **当前发布内核走 EL1 + venus，视频硬解可用**（`/dev/video32/33` = venus 解码/编码器，
+> mpv 走 `h264_v4l2m2m` 解码），见上面「新增」里的内核产物与 [`docs/releases/`](docs/releases/) 的 r1/r3 发布说明。
+> 下面的长表保留是为了可追溯，**不代表当前状态**。
+
+- 失败表现为 `iris_vpu_boot_firmware()` 返回 `-62`（ETIME）：`CTRL_STATUS` 轮询 1000 次恒为 `0`。
   2026-09-13 做了第二轮的**逐寄存器**验证，把"缺陷在驱动/设备树/固件选择"的可能性全部排除：
 
   | 变量 | 实测 | 结论 |
@@ -177,11 +188,14 @@
      即需要**签名 TA**。（本机内核 `# CONFIG_TEE is not set`，`qcomtee` 驱动未编；
      该项可修，但修好也过不了上述两道门。）
 
-  **最终结论**：本机视频硬解不可用，根因是**该设备的 TrustZone 把视频子系统的安全世界支持
-  （CP 内存保护 + 子系统状态机）实现在 QTEE + 签名 TA 之后**，Linux 侧够不到。
-  注意这**不是** EL2 的架构限制 —— Lenovo X13s（同为 SC8280XP）已在 EL2 下跑通。
-  替代方案为软件解码，本机实测 1080p30 H.264 仅需约 0.5 个大核（14.2× 余量），
-  详见 `docs/software-video-decode.md`。
+  **最终结论（仅针对 IRIS / 安全世界 CP 保护这条路线）**：本机无法从 Linux 启用 IRIS 所需的
+  **该设备 TrustZone 的视频安全世界支持**（CP 内存保护 + 子系统状态机）——它被实现在
+  QTEE + 签名 TA 之后，Linux 侧够不到。注意这**不是** EL2 的架构限制：
+  Lenovo X13s（同为 SC8280XP）已在 EL2 下跑通 IRIS。
+  ⇒ 本项目据此改走 **EL1 + venus**，该路线已实机验证可用（见 r1/r3 发布说明）；
+  本节仅作这条已放弃路线的历史记录。
+  无 VPU 时的兜底方案（纯软解）与量级数据见 `docs/software-video-decode.md`：
+  本机实测 1080p30 H.264 仅需约 0.5 个大核（14.2× 余量）。
 - 实验 iris 驱动时需先 `blacklist qcom_iris`、系统起来后再手动 `modprobe`：开机阶段的
   反复 probe 超时曾把显示子系统探针拖到 `-110` 并黑屏。**既然硬解结论已定，建议把这条
   blacklist 长期保留**，避免每次开机都白跑一轮探针并牵连 MDSS。
