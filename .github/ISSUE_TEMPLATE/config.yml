@@ -1,0 +1,22 @@
+# ============================================================================
+# easy-for-gaokun — issue 模板选择页配置
+#
+# 本项目只支持单一机型（GK-W76 / gaokun3）与唯一基线镜像，
+# 自由格式的 issue 无法提供足够信息定位问题，因此关闭空白 issue，
+# 并把「报告问题前需要知道什么」的文档放在模板选择页最上方。
+# ============================================================================
+
+blank_issues_enabled: false
+
+contact_links:
+  - name: 安装与适配文档（docs/）
+    url: https://github.com/aoripus/easy-for-gaokun/tree/main/docs
+    about: 双系统安装、触屏、音频、视频硬解、空闲策略等实机结论与踩坑记录
+
+  - name: 项目说明与快速开始（README）
+    url: https://github.com/aoripus/easy-for-gaokun/blob/main/README.md
+    about: 目标设备与三条机型判据、当前状态表、脚本用法与内核产物命名规范
+
+  - name: 报告问题前需要准备什么（CONTRIBUTING）
+    url: https://github.com/aoripus/easy-for-gaokun/blob/main/CONTRIBUTING.md#报告问题前
+    about: 机型判据、内核版本、诊断报告与复现步骤的具体要求
