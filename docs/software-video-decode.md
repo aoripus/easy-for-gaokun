@@ -49,12 +49,28 @@ FFmpeg 的 libavcodec（H.264/VP8/VP9 + NEON 汇编）与 dav1d（AV1）是唯�
 | 1080p60 AV1（dav1d） | 2–4 核 | 余量薄，带 film grain 可能跌破 |
 | 4K60 AV1 | ≥8 核当量 | **做不到** |
 
-上机实测（跑完即可把上表从【推测】升级为【已核实】）：
+### 1.6 ★ 本机实测（2026-09-13，GK-W7X / 8 核）
+
+用 `mandelbrot` 合成序列做测试源（比 `testsrc2` 难解得多；`ffmpeg -benchmark -i <f> -f null -`）：
+
+| 编码 | 样本 | 解码 CPU 时间 | 单帧 CPU | 倍速 | 限 4 线程 |
+|---|---|---|---|---|---|
+| H.264 1080p30 | crf 18，13.8 MB / 5 s | utime 2.393 s / 150 帧 | **16.0 ms** | **14.2×** | 7.9× |
+| VP9 1080p30 | crf 30，41.8 MB / 5 s | utime 4.434 s / 150 帧 | **29.6 ms** | **6.3×** | 4.3× |
+| AV1 1080p30 | SVT-AV1 crf 32，4.1 MB / 3 s | utime 1.099 s / 90 帧 | **12.2 ms** | **7.5×** | — |
+
+**判读（据此把上表从【推测】升级为【已核实】）**
+
+- 1080p30 H.264 只吃约 **0.5 个大核**（16.0 ms/帧 ÷ 33.3 ms），余量 14 倍 → **1080p60 也只需约 1 核**。
+- VP9 约 0.9 核；4 线程限制下（模拟浏览器单进程）仍有 4.3–7.9 倍余量。
+- **结论：1080p 软解在本机是"余量充足"，不是"勉强"。** §1.5 的估算整体偏保守、方向正确。
+- 局限：测试源是合成序列，真实影片（尤其带胶片颗粒的 AV1）会更重；但 4–14 倍的余量足以覆盖这个差距。**4K 未测**，按像素量推算约在 1–3.5× 之间，属"可能可行但无余量"。
+
+**一次已弃用的测量**：最初用 `testsrc2` 得到 H.264 2083 fps —— 合成低复杂度源会把解码器性能放大一个数量级，**不代表真实影片**，故不作为结论。复现命令：
 
 ```sh
-for f in h264.mp4 vp9.webm av1.mkv; do
-  echo "== $f"; ffmpeg -benchmark -i "$f" -f null - 2>&1 | tail -2   # 看 fps=
-done
+ffmpeg -y -f lavfi -i mandelbrot=size=1920x1080:rate=30 -t 5 -c:v libx264 -preset veryfast -crf 18 /tmp/r_h264.mp4
+ffmpeg -hide_banner -benchmark -i /tmp/r_h264.mp4 -f null - 2>&1 | tr '\r' '\n' | grep -E 'speed=|bench: utime'
 ```
 
 ## 2. 可直接抄的配置（Ubuntu 26.04 + Wayland）
