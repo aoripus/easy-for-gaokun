@@ -14,32 +14,32 @@ FFmpeg 的 libavcodec（H.264/VP8/VP9 + NEON 汇编）与 dav1d（AV1）是唯�
 
 ### 1.2 没有"软件 VA-API"这回事 —— 别装 vaapi / vdpau / v4l2m2m【已核实】
 
-- Mesa 的 VA-API 后端只编出 5 个驱动：`r600 / radeonsi / nouveau / virtio_gpu / d3d12`，**没有 Adreno/freedreno，也没有 llvmpipe/softpipe** [S1][S2]；libva 本身只是 API 与 vendor 驱动壳，不含任何解码器。→ 本机 `vainfo` 必然为空或报错，`LIBVA_DRIVER_NAME` 换任何名字都没用。
-- Mesa 的 `virtio_gpu`（virgl）VA 驱动只在**虚拟机里**把解码转给宿主机的真硬解 [S2]；llvmpipe/softpipe 不实现 PIPE_VIDEO。裸机上这两条都是死路。
-- `v4l2m2m` 是 V4L2 的 mem2mem **硬解**接口，必须有真实编解码节点；本机没有。V4L2 里唯一的"软件编解码器"是 vicodec，而它是**虚拟测试编解码器**（Kconfig 原文："Driver for a Virtual Codec … emulating a hardware codec"），不解 H.264/VP9/AV1 [S3]。
+- Mesa 的 VA-API 后端只编出 5 个驱动：`r600 / radeonsi / nouveau / virtio_gpu / d3d12`，**没有 Adreno/freedreno，也没有 llvmpipe/softpipe** 【S1】【S2】；libva 本身只是 API 与 vendor 驱动壳，不含任何解码器。→ 本机 `vainfo` 必然为空或报错，`LIBVA_DRIVER_NAME` 换任何名字都没用。
+- Mesa 的 `virtio_gpu`（virgl）VA 驱动只在**虚拟机里**把解码转给宿主机的真硬解 【S2】；llvmpipe/softpipe 不实现 PIPE_VIDEO。裸机上这两条都是死路。
+- `v4l2m2m` 是 V4L2 的 mem2mem **硬解**接口，必须有真实编解码节点；本机没有。V4L2 里唯一的"软件编解码器"是 vicodec，而它是**虚拟测试编解码器**（Kconfig 原文："Driver for a Virtual Codec … emulating a hardware codec"），不解 H.264/VP9/AV1 【S3】。
 
 ### 1.3 Adreno 690 能帮上什么：不解码，但很值得用【已核实】
 
-- **解码完全帮不上**：Adreno 上的视频块就是 IRIS/VPU 本体（固件 + PAS 路径）；freedreno 不实现 PIPE_VIDEO，Turnip 也不暴露任何 `VK_KHR_video_decode_*`。Mesa 的 VA 驱动清单里没有 Adreno 是最直接的旁证 [S2]。
-- **后处理可以帮很多**：`--vo=gpu-next`（libplacebo）把 1080p→2560×1600 缩放、YUV→RGB、色调映射都放 GPU；AV1 的 film grain 可交 GPU，mpv 手册原文："If video decoding is done on the CPU, doing film grain application on the GPU can speed up decoding." [S4]
+- **解码完全帮不上**：Adreno 上的视频块就是 IRIS/VPU 本体（固件 + PAS 路径）；freedreno 不实现 PIPE_VIDEO，Turnip 也不暴露任何 `VK_KHR_video_decode_*`。Mesa 的 VA 驱动清单里没有 Adreno 是最直接的旁证 【S2】。
+- **后处理可以帮很多**：`--vo=gpu-next`（libplacebo）把 1080p→2560×1600 缩放、YUV→RGB、色调映射都放 GPU；AV1 的 film grain 可交 GPU，mpv 手册原文："If video decoding is done on the CPU, doing film grain application on the GPU can speed up decoding." 【S4】
 
 ### 1.4 现代浏览器在 arm64 + Wayland 上能否软解【已核实】
 
 | 格式 | Firefox | Chromium（Ubuntu snap） | 本机可行性 |
 |---|---|---|---|
-| H.264 | 内置 libavcodec（`media.ffmpeg.enabled=true`）[S5] | 上游 Chromium **不含** H.264/AAC [S6]；**Ubuntu snap 自带含 H.264 的 libffmpeg.so** [S7] | ★ 主力：1080p60 都能扛 |
-| VP9 | 可以（ffvpx/libavcodec）[S5] | 可以（自带 libvpx）[S6] | 1080p 可用，比 H.264 贵 |
-| AV1 | dav1d（`media.av1.enabled`、`media.av1.use-dav1d` 默认均为 true）[S5] | dav1d（构建开关 `ENABLE_DAV1D_DECODER`）[S6] | 1080p 勉强可行、更耗电 |
-| HEVC | Linux 无平台解码器则不软解【推测】 | 仅平台解码器（`PlatformHEVCDecoderSupport`）[S6] | 避开 |
+| H.264 | 内置 libavcodec（`media.ffmpeg.enabled=true`）【S5】 | 上游 Chromium **不含** H.264/AAC 【S6】；**Ubuntu snap 自带含 H.264 的 libffmpeg.so** 【S7】 | ★ 主力：1080p60 都能扛 |
+| VP9 | 可以（ffvpx/libavcodec）【S5】 | 可以（自带 libvpx）【S6】 | 1080p 可用，比 H.264 贵 |
+| AV1 | dav1d（`media.av1.enabled`、`media.av1.use-dav1d` 默认均为 true）【S5】 | dav1d（构建开关 `ENABLE_DAV1D_DECODER`）【S6】 | 1080p 勉强可行、更耗电 |
+| HEVC | Linux 无平台解码器则不软解【推测】 | 仅平台解码器（`PlatformHEVCDecoderSupport`）【S6】 | 避开 |
 | 4K AV1 | 能放但不划算 | 同 | **放弃** |
 
 ### 1.5 1080p 软解性能量级（4×Cortex-X1 @3.0 + 4×A78）
 
 可直接引用的锚点：
 
-- **H.264**：Pi 4B（4×A72@1.5GHz）用 ffmpeg **软件**解码 1920×1080 得 **108 fps**（≈27 fps/核），720p 243 fps [S8]。
-- **AV1**：dav1d 官方称"手机小核 2 线程即可把 Chimera 解到 24fps""**1080p 用两三个核就够**"（Pixel 1 / SD821，2016）[S9]。
-- **缺口**：ARM 上的 VP9 / H.265 软解无可信实测；X13s（同 SC8280XP）Ubuntu 主帖 348 帖全文检索确认**没有任何 fps / CPU 占用数据** [S10]。下表为【推测，置信度中】。
+- **H.264**：Pi 4B（4×A72@1.5GHz）用 ffmpeg **软件**解码 1920×1080 得 **108 fps**（≈27 fps/核），720p 243 fps 【S8】。
+- **AV1**：dav1d 官方称"手机小核 2 线程即可把 Chimera 解到 24fps""**1080p 用两三个核就够**"（Pixel 1 / SD821，2016）【S9】。
+- **缺口**：ARM 上的 VP9 / H.265 软解无可信实测；X13s（同 SC8280XP）Ubuntu 主帖 348 帖全文检索确认**没有任何 fps / CPU 占用数据** 【S10】。下表为【推测，置信度中】。
 
 | 场景 | 估算（4 大核合计） | 判定 |
 |---|---|---|
@@ -107,7 +107,7 @@ user_pref("media.av1.use-dav1d", true);
 // user_pref("media.av1.enabled", false);
 ```
 
-系统级等价物（可选）：`/etc/firefox/policies/policies.json`，`Preferences` 策略可写任意 pref [S11]
+系统级等价物（可选）：`/etc/firefox/policies/policies.json`，`Preferences` 策略可写任意 pref 【S11】
 
 ```json
 {"policies":{"Preferences":{"media.hardware-video-decoding.enabled":false}}}
@@ -115,7 +115,7 @@ user_pref("media.av1.use-dav1d", true);
 
 Ubuntu 的 Firefox 是 snap，宿主 `/etc/firefox/policies` 未必进得去沙箱 —— 单用户机器优先用 user.js。
 
-验证是否真的在软解：YouTube 右键 → 统计信息，看 codec 是否为 `avc1`；Firefox 侧看 `about:support#graphics` 的 Decision Log，或用 `MOZ_LOG="FFmpegVideo:5"` 启动观察日志 [S19]。
+验证是否真的在软解：YouTube 右键 → 统计信息，看 codec 是否为 `avc1`；Firefox 侧看 `about:support#graphics` 的 Decision Log，或用 `MOZ_LOG="FFmpegVideo:5"` 启动观察日志 【S19】。
 
 ### 2.3 Chromium（Ubuntu 的 chromium 是 snap）
 
@@ -124,21 +124,21 @@ Ubuntu 的 Firefox 是 snap，宿主 `/etc/firefox/policies` 未必进得去沙�
 CHROMIUM_FLAGS="--disable-features=AcceleratedVideoDecoder,AcceleratedVideoDecodeLinuxGL"
 ```
 
-该文件路径经社区验证有效 [S12]；不写也能用（无 VA-API 时 Chromium 自动软解），这两行只是消掉无用的硬解初始化。Chromium ≥140 在 Wayland 会话默认走 Wayland [S6]。
+该文件路径经社区验证有效 【S12】；不写也能用（无 VA-API 时 Chromium 自动软解），这两行只是消掉无用的硬解初始化。Chromium ≥140 在 Wayland 会话默认走 Wayland 【S6】。
 
 ## 3. 浏览器内播放（YouTube / Bilibili）
 
-- **1080p 现实，1440p/4K 放弃**：YouTube 的 H.264 源最高只到 1080p（h264ify README 原文："4K and 1440p videos will not be available because YouTube no longer encodes those videos in H.264"）[S13] —— 对我们恰好就是目标分辨率。AV1/VP9 在 1080p 也能放，但更耗电。
-- **装 `enhanced-h264ify`（Firefox + Chromium 双端）强制 H.264**：ArchWiki 在"无 VP8/VP9 硬解时降低 YouTube CPU 占用"处正是推荐它 [S6]；只想屏蔽 AV1 可另加 `Not yet, AV1`。它把最贵的软解换成最便宜的软解。
-- **Bilibili**：网页端默认 AVC/HEVC，AV1 需在播放器"更多设置"里手动切（2022 年报道）[S14] → 不会默认撞上 AV1；要避开的是高码率档里的 **HEVC**（浏览器没有可靠的 HEVC 软解路径）。h264ify 类扩展拦的是 MediaSource 层，对 B 站同样生效，但其官方只承诺 YouTube【推测】。
+- **1080p 现实，1440p/4K 放弃**：YouTube 的 H.264 源最高只到 1080p（h264ify README 原文："4K and 1440p videos will not be available because YouTube no longer encodes those videos in H.264"）【S13】 —— 对我们恰好就是目标分辨率。AV1/VP9 在 1080p 也能放，但更耗电。
+- **装 `enhanced-h264ify`（Firefox + Chromium 双端）强制 H.264**：ArchWiki 在"无 VP8/VP9 硬解时降低 YouTube CPU 占用"处正是推荐它 【S6】；只想屏蔽 AV1 可另加 `Not yet, AV1`。它把最贵的软解换成最便宜的软解。
+- **Bilibili**：网页端默认 AVC/HEVC，AV1 需在播放器"更多设置"里手动切（2022 年报道）【S14】 → 不会默认撞上 AV1；要避开的是高码率档里的 **HEVC**（浏览器没有可靠的 HEVC 软解路径）。h264ify 类扩展拦的是 MediaSource 层，对 B 站同样生效，但其官方只承诺 YouTube【推测】。
 - **最省电的看片方式是 mpv + yt-dlp 直连**（`mpv <URL>`，用 §2.1 的 `ytdl-format`），绕开浏览器 MSE 与合成开销【推测】。
 
 ## 4. Waydroid / Android 容器：一定是纯软解，且比原生差
 
-- **硬解路径整体失效**：dragon-waydroid 的硬解就是 `v4l2_codec2` + **Venus 驱动**，其 README 原文点名了本机型号："Add support for HEVC/AVC/VP9 hardware decoding via v4l2_codec2 on Qualcomm mainline Linux devices with the **Venus driver**. Verified on Radxa Dragon Q6A(QCS6490) and **Huawei MateBook E Go(SC8280XP)**." [S15] → VPU 已死，这条路不可能活。
-- **容器内连 `/dev/video*` 都没有**：Waydroid 的 LXC 生成逻辑对 `/dev/video*` 做 glob，宿主不存在就不生成挂载；而 v4l2_codec2 的组件列表**不检查设备是否存在**，直到真正创建组件时才报 `No devices supporting …` [S16]。AV1 更缺：arm64 镜像走的 OMX 表里**完全没有 AV1**，只能靠 app 自带 dav1d [S17]。
-- **渲染别再降级**：Waydroid HWC 默认把 layer buffer 经 dmabuf 直接 attach 到 `wl_surface`（不额外合成），宿主侧用的就是 `vulkan.freedreno` + `ro.hardware.egl=mesa`；**不要**为了绕黑屏去开 swiftshader，那会让整个容器变成 CPU 渲染 [S18]。
-- **流媒体订阅内容别指望**：镜像默认不含 Widevine（`ANDROID_USE_WIDEVINE` 默认关），Netflix/Disney+ 之类 L1 内容必然黑屏 [S15]。
+- **硬解路径整体失效**：dragon-waydroid 的硬解就是 `v4l2_codec2` + **Venus 驱动**，其 README 原文点名了本机型号："Add support for HEVC/AVC/VP9 hardware decoding via v4l2_codec2 on Qualcomm mainline Linux devices with the **Venus driver**. Verified on Radxa Dragon Q6A(QCS6490) and **Huawei MateBook E Go(SC8280XP)**." 【S15】 → VPU 已死，这条路不可能活。
+- **容器内连 `/dev/video*` 都没有**：Waydroid 的 LXC 生成逻辑对 `/dev/video*` 做 glob，宿主不存在就不生成挂载；而 v4l2_codec2 的组件列表**不检查设备是否存在**，直到真正创建组件时才报 `No devices supporting …` 【S16】。AV1 更缺：arm64 镜像走的 OMX 表里**完全没有 AV1**，只能靠 app 自带 dav1d 【S17】。
+- **渲染别再降级**：Waydroid HWC 默认把 layer buffer 经 dmabuf 直接 attach 到 `wl_surface`（不额外合成），宿主侧用的就是 `vulkan.freedreno` + `ro.hardware.egl=mesa`；**不要**为了绕黑屏去开 swiftshader，那会让整个容器变成 CPU 渲染 【S18】。
+- **流媒体订阅内容别指望**：镜像默认不含 Widevine（`ANDROID_USE_WIDEVINE` 默认关），Netflix/Disney+ 之类 L1 内容必然黑屏 【S15】。
 - 净结论：1080p30 H.264/VP9 能放，但多一层 SurfaceFlinger + 跨容器 IPC，AV1 基本没戏；**没有任何比原生 Linux 更好的场景**，只有"Android 独占 app"才值得开。B 站/YouTube 请用原生 Firefox 或 mpv。
 
 ## 5. 推荐配置（最小可用）
