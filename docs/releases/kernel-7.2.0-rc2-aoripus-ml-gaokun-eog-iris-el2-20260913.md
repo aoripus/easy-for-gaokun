@@ -1,4 +1,4 @@
-# 内核构建 7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+
+# [内核] 7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+
 
 发布日期：2026-09-13
 适用设备：HUAWEI MateBook E Go 2022 性能版（GK-W76 / GK-W7X-PCB / SC8280XP / gaokun3）
