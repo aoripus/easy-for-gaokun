@@ -112,7 +112,7 @@ r3 已补上；下表是补上之后的实测。
 ## 5. r3 空闲策略：中断门控采样（interrupt-gated sampling）
 
 ```
-连续 idle_enter_frames 帧（默认 240 ≈ 2 s）无稳定触点
+连续 idle_enter_frames 帧（默认 7200 ≈ 60 s）无"已上报触点"
         ↓
 idle_active = 1；disable_irq()；每 idle_poll_ms（默认 30 ms）排一次 delayed_work
         ↓
@@ -122,6 +122,16 @@ work：idle_sampling = 1；enable_irq()   ← 只放行"一帧"
         ├─ 检出触点（algo->touch_active）→ idle_active = 0，保持中断模式（结束空闲）
         └─ 无触点 → 再次 disable_irq() + 重排 work
 ```
+
+**默认值与时序**：`idle_enter_frames = 7200`（≈60 s @120 Hz）、`idle_poll_ms = 30`。
+初始版本用 240 帧（≈2 s），**实机体验"不跟手"**——正常阅读/思考的停顿就会让策略进入空闲，
+下一次触摸要等一个采样周期；60 s 远超任何交互间隔，因此定为默认。
+
+**★ 计时器复位条件：必须用"已上报触点"，不能用原始稳定触点数。**
+第一版把复位写成 `stable_cnt > 0`，结果 **60 s 阈值永远到不了**：实测模块加载后
+**111 s 内 7200 帧都没累积满**（`idle_state` 显示计数反复清零），因为偶发的单帧噪声
+会不断重启计时。改成只由 `algo->touch_active`（通过去抖、真正上报给输入子系统的触点）复位后，
+计数单调增长、60 s 准时进入空闲。**教训：判据要跟"用户看得见的事件"对齐，而不是跟内部中间量对齐。**
 
 **为什么不是"在 work 里直接读帧轮询"**（这是我们的第一版实现，实测失败）：
 离开中断上下文读 event stack **与 IC 的帧边界无关**，读到的是撕裂帧，
@@ -170,10 +180,11 @@ himax-spi spi0.0: idle: one frame every 30ms after 240 contact-free frames
 | 节点 | 用途 |
 |---|---|
 | `frame`（RO） | 直接读一帧并返回 `bytes_sum`/`grid16_sum`/前 32 B ⇒ **判断 IC 是否在扫描**（不依赖中断） |
+| `idle_state`（RO） | 空闲策略状态：`active` / `sampling` / 已累积的 `frames` / 阈值 / 采样周期 ⇒ **判断"为何还没进空闲"** |
 | `irq_gate`（WO） | `echo 1 > irq_gate` 屏蔽中断、`echo 0` 恢复 ⇒ 验证"屏蔽不影响 IC 扫描" |
 | `afe_cmd`（WO） | `echo "0a 00" > afe_cmd` 等；`allow_any_afe_cmd=1` 可放开任意 cmd |
 | `regs`（WO） | 裸 AHB 读写（`echo "r 10007088 4"` / `echo "w 10007088 17 00 00 00"`），受 `allow_raw_ahb=0` 门控 |
-| 模块参数 | `idle_enter_frames`、`idle_poll_ms`、`afe_log_response`、`afe_skip_trigger`、`afe_skip_readback` |
+| 模块参数 | `idle_enter_frames`（默认 7200）、`idle_poll_ms`（默认 30）、`afe_log_response`、`afe_skip_trigger`、`afe_skip_readback` |
 
 **注意**：实验期间必须保持面板点亮——`inplace_reset` 在面板熄灭时返回 `-EHOSTDOWN`，
 且熄灭本身就会关掉触屏 IRQ，会让所有测量失真。
