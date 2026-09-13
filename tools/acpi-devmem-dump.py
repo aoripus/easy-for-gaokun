@@ -84,7 +84,7 @@ def read_tables(f, rsdp):
     root_phys = rsdp["xsdt"] or rsdp["rsdt"]
     wide = bool(rsdp["xsdt"])
     hdr = rd(f, root_phys, 36)
-    sig, tlen = hdr[:4], struct.unpack_from("<I", hdr, 4)[0]
+    _, tlen = hdr[:4], struct.unpack_from("<I", hdr, 4)[0]
     if tlen < 36 or tlen > MAX_TABLE:
         raise RuntimeError("根表长度异常：%d" % tlen)
     body = rd(f, root_phys + 36, tlen - 36)
@@ -99,10 +99,10 @@ def read_tables(f, rsdp):
         if len(t) < 36:
             continue
         s = t[:4]
-        l = struct.unpack_from("<I", t, 4)[0]
-        if l < 36 or l > MAX_TABLE:
+        tlen_ent = struct.unpack_from("<I", t, 4)[0]
+        if tlen_ent < 36 or tlen_ent > MAX_TABLE:
             continue
-        full = t + rd(f, addr + 36, l - 36)
+        full = t + rd(f, addr + 36, tlen_ent - 36)
         out.append((addr, s.decode("latin1"), full))
     return out
 
@@ -154,7 +154,7 @@ def cmd_find(tables, needles, context=1800):
 def cmd_serial_bus(tables):
     """列出所有 I2C/SPI/UART 串行总线连接描述符及其所属设备。"""
     total = 0
-    for addr, sig, data in tables:
+    for _addr, sig, data in tables:
         if sig not in ("DSDT", "SSDT"):
             continue
         for off in range(len(data) - 3):
