@@ -24,6 +24,7 @@ OUT=$BASE/out-$VER
 P=$BASE/buildbot-patches
 EL2P=${GK_EL2_PATCH_DIR:-$BASE/el2-patches}
 EL2RB=$BASE/el2-rebased
+IRISP=${GK_IRIS_EL2_PATCH:-$BASE/iris-el2.patch}
 PREP=$BASE/gaokun-iris-dts-prep.py
 TOUCH_PATCH=${GK_TOUCH_PATCH:-$BASE/0001-touchscreen-gpio174.patch}
 LOG=$BASE/build-$VER.log
@@ -47,6 +48,7 @@ command -v "${CROSS_COMPILE}gcc" >/dev/null || die "找不到 ${CROSS_COMPILE}gc
 [ -f "$PREP" ] || die "找不到 $PREP"
 [ -f "$TARBALL" ] || die "找不到 $TARBALL"
 [ -f "$TOUCH_PATCH" ] || die "找不到触屏补丁 $TOUCH_PATCH"
+[ -f "$IRISP" ] || die "找不到 IRIS EL2 补丁 $IRISP"
 "${CROSS_COMPILE}gcc" --version | head -1
 
 step "1. 解包 v$VER"
@@ -153,6 +155,13 @@ git apply "$TOUCH_PATCH" || die "触屏补丁应用失败：$TOUCH_PATCH"
 git add -A >/dev/null && git commit -qm "arm64: dts: qcom: sc8280xp-huawei-gaokun3: select SPI mode for touchscreen" || true
 grep -c 'gpio174' arch/arm64/boot/dts/qcom/sc8280xp-huawei-gaokun3.dts >/dev/null \
   || die "base DTS 中未出现 gpio174"
+
+# 视频固件在 EL2 下必须走 ctx 感知的 PAS 路径：固件缓冲区的 SHM bridge 得由 Linux
+# 自己建（见 qcom_scm_pas_prepare_and_auth_reset() 的注释）。上游 iris 驱动按 EL1
+# 写，传 NULL ctx，本机上表现为 "error -22 initializing firmware"。
+step "5c. IRIS EL2 修复补丁（tzmem + ctx 感知 auth）"
+git apply "$IRISP" || die "IRIS EL2 补丁应用失败：$IRISP"
+git add -A >/dev/null && git commit -qm "media: iris: use ctx-aware PAS loading for EL2" || true
 
 step "6. 生成配置"
 rm -rf "$OUT"; mkdir -p "$OUT"
