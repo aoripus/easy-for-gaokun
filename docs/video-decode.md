@@ -10,7 +10,7 @@
 >
 > | 事实 | 证据 |
 > |---|---|
-> | **EL1 下 venus 正常工作** | `/dev/video33 = qcom-venus-decoder`；支持 H264/VP8/VP9/HEVC/MPEG-2；mpv 实测 `[ffmpeg/video] h264_v4l2m2m: Using device /dev/video33` |
+> | **EL1 下 venus 正常工作** | 当次实测出现 `qcom-venus-decoder`（该次为 `/dev/video33`，节点号会变，见下）；支持 H264/VP8/VP9/HEVC/MPEG-2；mpv 实测 `[ffmpeg/video] h264_v4l2m2m: Using device /dev/video33` |
 > | **EL2 下同一驱动必然失败** | `error -22 initializing firmware` → `probe with driver qcom-venus failed with error -22`（即本文原来记录的现象） |
 > | 原因 | 上游 venus/iris 都按 **EL1** 写：`qcom_mdt_load(…, NULL)` 分配固件缓冲 + 裸调 `qcom_scm_pas_auth_and_reset()`；EL1 下这两步由 EL2 的 hypervisor 代管，bare-metal EL2 下无人代管 |
 > | 第二道坎（EL2 特有） | 上游 EL2 补丁集原文：*"可以认证并启动固件，但 **remoteproc 永不脱离复位**"* —— DSP 有 `qcom,broken-reset`/attach 兜底，**视频核没有 attach 可言** |
@@ -22,6 +22,27 @@
 > **切换方式**：EL1/EL2 只差 BLS 条目里的 `devicetree`（`sc8280xp-huawei-gaokun3.dtb` ↔ `…-el2.dtb`）；
 > `slbounce` 会嗅探设备树自行决定。**切勿**通过移除 `EFI/systemd/drivers/` 下的 slbounce/qebspil
 > 来"回退到 EL1"——那会破坏引导链导致黑屏。
+
+### ★ 设备节点号不是固定的（实测，勿硬编码）
+
+venus 的 decoder / encoder 节点号由 probe 顺序决定，**每次开机可能互换**【已核实】：
+
+| 核对时机 | `qcom-venus-decoder` | `qcom-venus-encoder` |
+|---|---|---|
+| 2026-09-13 装机验证时 | `/dev/video33` | `/dev/video32` |
+| 2026-09-13 同日再次开机 | `/dev/video32` | `/dev/video33` |
+
+`/dev/v4l/by-path/` 与 `/dev/v4l/by-id/` 下**没有**这两个节点的链接（已实测为空）⇒
+脚本、配置与文档一律**不要硬编码节点号**，按名字解析：
+
+```bash
+for d in /dev/video*; do
+  [ "$(cat /sys/class/video4linux/$(basename "$d")/name)" = qcom-venus-decoder ] && echo "$d"
+done
+```
+
+mpv / ffmpeg 的 `v4l2m2m` 是按解码能力枚举设备的，不受节点号影响 —— 这正是两次实测里它报出的
+节点号不同、而硬解都正常的原因。
 
 ---
 
