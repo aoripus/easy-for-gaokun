@@ -12,6 +12,34 @@
 
 ## [未发布]
 
+### 修复
+
+- **构建：EL2 补丁组被整组丢弃。** `git apply` 一次传多个补丁是原子操作，只要有一个失败就
+  一个都不应用，而原脚本在失败后仍继续编译。缺失该组补丁的产物在真机上表现为 adsp / cdsp /
+  slpi / venus 固件加载全部报 `-22`，**音频与视频同时失效**。构建脚本改为逐个应用、统计失败
+  数，失败过多直接中止，并在编译后校验关键标记。
+- **构建：`patches/el2/*` 与 v7.2-rc2 不适配。** 该组补丁发布于 2025-07，其中 `0006`（引入
+  `enum rproc_auto_boot` 的那个补丁）撞上上游后加的代码，依赖该枚举的 `0010`、`0016` 因此
+  级联失败，`0011` 则是 `scm.h` 上下文漂移。适配版见 `patches/el2-v7.2/`。
+- **产物：设备树缺少触屏的 `gpio174` 修复。** 此前只有装机脚本会在 ESP 上现打补丁，发布出去
+  的 DTB 本身不含该修复，按发布说明直接使用会导致触屏失效。构建流程现已在 base DTS 上应用该
+  补丁，并在编译后断言两个 DTB 同时含 `gpio174` 与 IRIS 节点、不含旧 venus 兼容串。
+- **产物：模块包漏收 `modules.builtin.modinfo`。** 导致设备上 `depmod` 与 `initramfs` 各报
+  一条警告，并影响内置模块的固件查找与 `modinfo`。
+
+### 新增
+
+- `patches/iris-el2/`：IRIS 视频驱动在 EL2 下的适配 —— 分配 `qcom_scm_pas_context` 并置
+  `use_tzmem`，改用 `qcom_scm_pas_prepare_and_auth_reset()`，让 SHM bridge 由 Linux 自己
+  建立。应用后固件认证与解复位均通过，失败点推进到 `qcom_scm_mem_protect_video_var`（`-5`）。
+- `tools/build-iris-x86.sh`、`tools/mk-release.sh`：构建与打包脚本纳入仓库，使
+  `BUILD-PROVENANCE.md` 声明的"可由本仓库脚本复现"成立。
+
+### 已知问题
+
+- 视频硬解在 EL2 下仍不可用：`qcom_scm_mem_protect_video_var` 返回 `-5`，与上游 EL2 补丁
+  0018 关于"远程处理器不会真正脱离复位"的描述一致。
+
 ## [0.1.0] - 2026-09-13
 
 首个版本：设备鉴别、双系统安装、触屏修复、音频调优、外设调查与内核构建配方。
