@@ -1,0 +1,11 @@
+# patches/el2-v7.2/series —— 本目录补丁的应用顺序（顺序敏感）
+#
+# 依赖关系：
+#   0006  把 struct rproc.auto_boot 由 bool 改为 enum rproc_auto_boot（并重写 xlnx 处赋值）
+#   0006z 补上上游在 0006 之后新增的两处 auto_boot 赋值（枚举化收尾）
+#   0011  scm.h / binding 上下文漂移的重写版，与本组其余补丁无依赖
+#
+# ★ 本序列属**历史归档**（EL2 路线）；当前发布内核走 EL1 + venus，不使用本目录。
+0006-remoteproc-core-Allow-restarting-detached-remoteproc.patch
+0006z-xlnx-auto-boot-completion.patch
+0011-dt-bindings-firmware-qcom-scm-Add-qcom-shm-bridge-vm.patch
