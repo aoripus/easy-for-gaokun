@@ -1,0 +1,19 @@
+# easy-for-gaokun 提交信息模板
+# 用法：git config commit.template .gitmessage
+#
+# 格式：<type>(<scope>): <subject>
+#   type：feat fix docs style refactor perf test build ci chore revert
+#   scope：受影响的模块，例如 kernel dts touch scripts docs release patches
+#   subject：简体中文，≤ 72 字符（含 type/scope/冒号），不以句号结尾
+#
+# 正文（可选，但下面两件事必须写清）：
+#   1. 改了什么、为什么 —— 现象与根因，而不是复述 diff
+#   2. 实机验证方式 —— 在目标机上执行了什么、看到什么变化；只写"已测试通过"不算证据
+#
+# 内核补丁额外要求：必须带 Signed-off-by（与作者信息一致），见 CONTRIBUTING。
+#
+# 示例：
+#   fix(touch): 修复 himax_lock/unlock 中断使能不对称导致 sysfs 访问杀死触屏
+#   docs(install): 补充 ESP 空间不足时的处置记录
+#   feat(kernel): 引入 qcom,force-gsi-mode 让触屏 SPI 走 GSI
+#
