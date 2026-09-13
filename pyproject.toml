@@ -1,0 +1,21 @@
+# ============================================================================
+# easy-for-gaokun — Python 静态检查配置
+#
+# tools/ 下是单文件 CLI 脚本（离线分析 Windows 注册表、解析 ACPI、跑触屏基准），
+# 不发布为包，因此这里**只有 ruff 配置**，没有构建系统与项目元数据。
+# ============================================================================
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = ["downloads", "Drv", "Recovery"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501", # 行长：中文注释与实机输出难以压到 100 列
+  "E402", # 这些脚本常有"先解析参数再 import"的写法
+]
+
+[tool.ruff.format]
+quote-style = "preserve"
