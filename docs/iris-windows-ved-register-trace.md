@@ -272,6 +272,7 @@ void VedHwIoOut(CTX *ctx, uint32_t off, uint32_t val) {
 0x140390d80  str  w11,[x10, #20]
 0x140390d8c  str  w9, [x10, #8]
 ```
+
 朴素扫描器（把 `x0` 误认为 MMIO 基址）会把它读成 `0xA002C`/`0xA0024`/`0xA0014`/`0xA0008` 等一连串「Windows 独有寄存器」。**这是假阳性**——`x0` 在此处是上下文指针，`+0x7950` 是软件字段。【已核实】
 
 ---
@@ -311,7 +312,7 @@ void VedHwIoOut(CTX *ctx, uint32_t off, uint32_t val) {
 | `0x14037c740` / `0x14037cb80` | SysCache 寄存器编程 | `0x14037c91c` `System cache ID, reg prog val`；`0x14037ca94` `sys cache expected to be activated with in count` | `0xD2114`、`0xD2118`←`0x3698` |
 | `0x14037b830` | **`vedInitPlatformConfigs`** | `0x1403d8298` `Unknown nHWVersion in vedInitPlatformConfigs V1`；`0x1403d81d0` `vedInitPlatformConfigs Venus510`；`0x1403d8278` `vedInitPlatformConfigs Venus610` | 只写 ctx（含 `ctx[0x7114]`、`ctx[0x7138]`） |
 | `0x140375620` | **`VedHandlePowerChange`** | `0x140375694` `Missing parameters to VedHandlePowerChange`；`0x140375cfc` `VedInitVideoCore:ePowerTransType changed ...` | 读 `0xA0048`、`0xA004C`（判定 core 状态） |
-| `0x140043090` | **`VedDecodeAndClearInterrupt`** | `0x140043670` `HFI: intrStatus = ` | 读 `0xB000C`、`0xE000C`、`0xB0010`、`0xE0010`；写 `0xD2104`←`7`、`0xD201C`←`1`、`0xE0014`、`0xA001C`←`1` |
+| `0x140043090` | **`VedDecodeAndClearInterrupt`** | `0x140043670` `HFI: intrStatus =` | 读 `0xB000C`、`0xE000C`、`0xB0010`、`0xE0010`；写 `0xD2104`←`7`、`0xD201C`←`1`、`0xE0014`、`0xA001C`←`1` |
 | `0x140044450` / `0x14004d9a0` | 中断/Reset 处理同类函数 | `vedEngineApi.c` | 同上族 + `0xB0024`/`0xB0028`/`0xB0064`/`0xB0068`/`0xB006C`/`0xB0070`/`0xB01FC` |
 | `0x140382420` | **`VedHandleHfiCoverage`** | `0x140382484` `ENTRY: VedHandleHfiCoverage` | `0xDF018`、`0xA0148`、`0xA0150` |
 | `0x1400514c0` | HFI DPC（未定名） | `0x140051914` `DPC: ePacketType sessionId` | `0xDF018`、`0xA0148`、`0xA0150` |
