@@ -128,6 +128,8 @@ def main():
     ap.add_argument("--device", default=None)
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--json", default=None, help="把结果 JSON 追加写入该文件")
+    ap.add_argument("--wait-timeout", type=float, default=0.0,
+                    help="等待首次触摸的秒数；>0 时**以第一帧为计时起点**（推荐，A/B 对比更公平），0=立即计时")
     args = ap.parse_args()
 
     if args.list:
@@ -155,9 +157,19 @@ def main():
     frame_pts = []       # 每帧的触点事件数
     n_abs = n_key = n_syn = 0
     pending = 0
-    t_end = time.monotonic() + args.seconds
+    t0 = None          # 计时起点 = 第一帧；两条通路因此测的是同一段有效动作
+    wait_deadline = time.monotonic() + args.wait_timeout if args.wait_timeout > 0 else None
+    if args.wait_timeout > 0:
+        print("[gk] 等待你开始触摸（最多 %.0f 秒）..." % args.wait_timeout, flush=True)
 
-    while time.monotonic() < t_end:
+    while True:
+        now = time.monotonic()
+        if t0 is None:
+            if wait_deadline is not None and now > wait_deadline:
+                print("[gk] 等待首次触摸超时", flush=True)
+                break
+        elif now >= t0 + args.seconds:
+            break
         try:
             data = os.read(fd, INPUT_EVENT_SIZE * 256)
         except BlockingIOError:
@@ -172,6 +184,9 @@ def main():
         for off in range(0, len(data) - INPUT_EVENT_SIZE + 1, INPUT_EVENT_SIZE):
             _s, _us, etype, code, _val = struct.unpack_from(INPUT_EVENT_FMT, data, off)
             if etype == EV_SYN and code == SYN_REPORT:
+                if t0 is None:
+                    t0 = now
+                    print("[gk] 检测到触摸，开始计时 %.1f 秒 —— 请持续滑动" % args.seconds, flush=True)
                 n_syn += 1
                 frames.append(now)
                 frame_pts.append(pending)
@@ -191,7 +206,8 @@ def main():
     med = percentile(gaps_sorted, 0.50) if gaps_sorted else float("nan")
     n_long = sum(1 for g in gaps if med == med and g > 2 * med) if gaps_sorted else 0
 
-    dur = args.seconds
+    # 有效时长 = 第一帧到最后一帧（不是请求的窗口长度），这样两条通路可比
+    dur = (frames[-1] - frames[0]) if len(frames) > 1 else args.seconds
     cpu_pct = 100.0 * ((c_tot1 - c_tot0) - (c_idle1 - c_idle0)) / max(1, c_tot1 - c_tot0)
 
     res = {
@@ -199,6 +215,7 @@ def main():
         "device": dev,
         "device_name": name,
         "seconds": dur,
+        "requested_seconds": args.seconds,
         "frames": n_syn,
         "rate_hz": round(n_syn / dur, 2),
         "gap_ms": {
