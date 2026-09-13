@@ -1,9 +1,9 @@
 # 安装到内置盘：Windows + Ubuntu 双系统
 
 > 本文记录在 **HUAWEI MateBook E Go 2022 性能版（GK-W76）** 的内置盘上，
-> 与出厂 Windows 共存安装 Ubuntu 的**完整可用流程**。所有命令均为实机验证过的版本。
+> 与出厂 Windows 共存安装 Ubuntu 的可复现流程。文中命令均取自实机验证过的操作记录。
 >
-> 适用范围：只支持 §1 三条判据全部通过的机器（见 [README §1](../README.md)）。
+> 适用范围：仅 §1 三条判据全部通过的机器（见 [README §1](../README.md)）。
 
 ---
 
@@ -19,7 +19,7 @@
 因此**不能**把整盘镜像 `dd` 到一个分区里。正确做法是**分区级 `dd`**：
 在目标盘上新建两个分区，再把镜像里的 `p1`、`p2` 分别 `dd` 进去。
 
-这样做有一个极大的好处：
+这样做的附带效果是：
 
 > **`dd` 会原样保留文件系统 UUID。**
 > 镜像的 `/etc/fstab` 用的是 `UUID=9146-7FE9 /boot/efi` 与 `UUID=a2447957-… /`，
@@ -30,9 +30,9 @@
 
 ## 1. 准备
 
-### 1.1 必须记录 BitLocker 恢复密钥
+### 1.1 记录 BitLocker 恢复密钥
 
-如果 Windows 的 C: 开了 BitLocker，**先导出恢复密钥并抄到别处**：
+如果 Windows 的 C: 开了 BitLocker，操作前先导出恢复密钥并抄到别处：
 
 ```powershell
 manage-bde -status
@@ -41,10 +41,10 @@ manage-bde -protectors -get C: -type recoverypassword
 
 ### 1.2 确认可用空间
 
-内置盘出厂时通常**没有任何空闲空间**。需要腾出：
+内置盘出厂时通常没有任何空闲空间，需要腾出：
 
 - **至少 1 GiB + 12 GiB**
-- **建议 rootfs 给 64 GiB 以上**，装完再扩容
+- **rootfs 建议给 64 GiB 以上**，装完再扩容
 
 腾空间的三条路（按推荐度）：
 
@@ -54,9 +54,9 @@ manage-bde -protectors -get C: -type recoverypassword
 | 压缩 C: | 需先 `Suspend-BitLocker` 并 `powercfg /h off`；Windows 可能因不可移动文件压不动 |
 | 删除原厂恢复分区 | **不推荐**，会永久失去一键恢复 |
 
-> ⚠️ **动手前务必确认目标分区里真的没有要留的数据。**
-> 本项目的实机操作中，一个"空的"D: 分区里其实有 993 MB 数据（含 Telegram 登录态）。
-> 先只读挂载看一眼：
+> **操作前需确认目标分区里没有要保留的数据。**
+> 本项目的实机操作中，一个"空的"D: 分区里实际有 993 MB 数据（含 Telegram 登录态）。
+> 可先只读挂载查看：
 
 ```bash
 sudo mkdir -p /mnt/probe && sudo mount -o ro /dev/nvme0n1p4 /mnt/probe
@@ -64,7 +64,7 @@ sudo find /mnt/probe -mindepth 1 | wc -l
 sudo umount /mnt/probe
 ```
 
-### 1.3 备份分区表（强烈建议）
+### 1.3 备份分区表（建议执行）
 
 ```bash
 sudo sgdisk --backup=/root/nvme0n1-gpt-backup.bin /dev/nvme0n1
@@ -91,7 +91,7 @@ sudo parted -s $LOOP unit MiB print
 sudo blkid ${LOOP}p1 ${LOOP}p2 | tee /root/src-uuid.txt
 ```
 
-**务必把这两个 UUID 记下来**，第 5 步要逐字核对。
+**记下这两个 UUID**，第 5 步要逐字核对。
 
 ---
 
@@ -134,7 +134,7 @@ sync
 
 ---
 
-## 5. ★ 核对 UUID（**这一步不能跳**）
+## 5. 核对 UUID（**这一步不能跳**）
 
 ```bash
 sudo blkid /dev/nvme0n1p4 /dev/nvme0n1p8
