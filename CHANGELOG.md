@@ -64,6 +64,15 @@
   建立。应用后固件认证与解复位均通过，失败点推进到 `qcom_scm_mem_protect_video_var`（`-5`）。
 - `tools/build-iris-x86.sh`、`tools/mk-release.sh`：构建与打包脚本纳入仓库，使
   `BUILD-PROVENANCE.md` 声明的"可由本仓库脚本复现"成立。
+- `patches/spi-gsi/`：引入 **Pengyu Luo** 的 v1 两条补丁（`qcom,force-gsi-mode` 的
+  binding + driver），让触屏 QUP-SPI 走 **GSI（DMA）模式**。本机 DTS 早已写有该属性，
+  但 v7.2.5 的驱动不读它、binding 里也没有，此前一直静默退回 FIFO 模式。选 v1 而非 v2 的
+  原因：**v2 已被作者本人撤回**（2026-07-14，「keep using the fifo_disabled variable」）。
+  实测（空闲 20 s 窗口）：GENI SE 中断 `998000.spi` 由 **+6,206 降为 0**，改由 `gpi-dma`
+  完成（约 2 次 DMA 中断/次触屏中断），每次触屏中断对应的 SPI 完成中断从 ≈2.59 降到 ≈2.00。
+- 内核产物 **`7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1`**：首个按新命名规范发布的 EL1 内核，
+  串尾**无 `+`**（构建时移开 `.git`），已实机验证 venus 硬解与触屏均正常。
+  发布说明见 [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913.md`](docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913.md)。
 
 ### 已知问题
 
