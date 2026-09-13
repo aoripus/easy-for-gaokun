@@ -282,10 +282,34 @@ grep -aq 'broken-reset'    $DTB && echo "不该有（EL2 专属）"
 
 | 缺口 | 影响 | 处理 |
 |---|---|---|
-| `qcom,force-gsi-mode` 无人读取 | DTS 里写了该属性，但 7.2.5 的 `spi-geni-qcom.c` **不读它**（binding 亦无该属性）⇒ SPI 退回 **FIFO 模式**：触屏**功能可用、性能略低** | 补 `patches/upstream/0024`（1,663 B，Pengyu Luo），或跟进其 **v2**（DMA 可用时自动用 GSI） |
+| ~~`qcom,force-gsi-mode` 无人读取~~ ✅ **已在 r1 解决** | 7.2.5 的 `spi-geni-qcom.c`**不读**该属性（binding 亦无）⇒ SPI 退回 **FIFO 模式**。r1 补上 Pengyu Luo 的 **v1 两个补丁**（binding + driver，见 `patches/spi-gsi/`）；其 **v2 已被作者本人撤回**（2026-07-14：「keep using the fifo_disabled variable」），故 DT 属性路线是唯一可行解 | 已合入 r1 并实测生效（见下方更正） |
 | 触屏两条路线未做 A/B | 上游 I²C-HID（零补丁）vs 社区 SPI（`gpio174` 拉低） | 两版 DTB 各实测一次，见 `AGENTS.md` §7.9.4 |
 | 热管理补丁未纳入 | 无 75 °C 主动节流 | 社区 `patches/gaokun3/0002,0004` 可移植 |
 | 音频 UCM | `alsa-ucm-gaokun3` 是独立包 | 从社区 release 取，或自行编写 |
+
+> ### ★ 一处结论更正（r1 实测，2026-09-13）
+>
+> 曾把 `tools/gk-touch-bench.py` 报出的「**每帧 15.39 个触屏 IRQ**」归因于"SPI 退回 FIFO 模式"。
+> **这不成立**（该说法仍留在 r0 的 release notes 里，属已发布的历史记录，不再改写）。
+>
+> 那条 IRQ 是**触屏 IC 的中断线**（`msmgpio 175 / himax-spi-ts`），与 SPI 控制器的
+> `998000.spi`（GENI SE）中断是**两条完全不同的线**。
+>
+> **r1 实测**（空闲、无触摸的 20 s 窗口，两次采样取增量）【已核实】：
+>
+> | 中断线 | r0（FIFO） | r1（GSI） |
+> |---|---|---|
+> | `998000.spi`（GENI SE） | **+6,206** | **0** |
+> | `gpi-dma` | 无此行（= 0） | **+4,803** |
+> | `msmgpio 175`（触屏 IC） | **+2,397** | **+2,401** |
+>
+> ⇒ ① **GSI 确实生效**：SE 中断恒为 0，传输完成改由 GPI DMA 中断报告（约 2 次 DMA 中断/次触屏中断）；
+> ② 每次触屏中断对应的 **SPI 完成中断数从 ≈2.59 降到 ≈2.00（−23%）**；
+> ③ **触屏 IC 自身的中断速率完全不变**（约 120 次/秒）—— 所以 `irq_per_frame` 那个 15.39
+> **不会**因 GSI 而下降，它是 IC/驱动交互的行为，不是 SPI 模式问题；
+> ④ 顺带发现（**r0 与 r1 皆有，非 r1 引入**）：**无人触摸时 IC 仍以约 120 次/秒中断，
+> 却不产生任何输入事件**（"幽灵中断"）。这条值得单独追查（可能是 IC 的
+> `sense on` 常开或 INT 未正确清除），已记入下一轮待办。
 
 ---
 
