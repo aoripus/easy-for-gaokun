@@ -436,7 +436,8 @@ sudo ./scripts/90-report.sh > gaokun-report.txt
 
 | Release 标题 | 标签 | 内核串（`uname -r`） | 内容 | 状态 |
 |------|------|------|------|------|
-| `Kernel 7.2.5 (EL1) VENUS r3` | `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3` | 自研 stable v7.2.5 + EL1 + venus；触屏中断缺陷修复 + 空闲门控采样 | **Latest**；装机复核通过（EL1、venus 解码/编码器、触屏正常；空闲 IRQ 120 → 23 Hz） |
+| `Kernel 7.2.5 (EL1) VENUS r4` | `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-20260915` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4` | 自研 stable v7.2.5 + EL1 + venus；**GPU 遥测**（使用率/显存占用/时钟/温度，并加单数字 hwmon 别名绕开应用 glob 缺陷） | **Latest**；真机复测：Resources 的 GPU 页四项全部有值（547 MHz / 34.2 °C / 231 MB），EL1、venus、触屏无回归 |
+| `Kernel 7.2.5 (EL1) VENUS r3` | `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3-20260913` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r3` | 自研 stable v7.2.5 + EL1 + venus；触屏中断缺陷修复 + 空闲门控采样 | 已发布；装机复核通过（EL1、venus 解码/编码器、触屏正常；空闲 IRQ 120 → 23 Hz） |
 | `Kernel 7.2.5 (EL1) VENUS r1` | `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1-20260913` | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r1` | 同上，另加触屏 SPI 走 GSI（DMA） | 已发布；滑动实测每帧触屏 IRQ 15.39 → 3.56 |
 | `Kernel 7.2.5 (EL1) VENUS`（旧命名，追溯记 `r0`） | `kernel-7.2.5-aoripus-ml-gaokun-eog-el1-20260913` | `7.2.5-aoripus-ml-gaokun-eog-el1+` | 首个自研 EL1 内核：打通 venus 硬解与 SPI 触屏 | 已发布；已被 `r1`/`r3` 取代 |
 | `Kernel 7.2.0-rc2 (EL2) IRIS`（旧命名，追溯记 `r0`） | `kernel-7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2-20260913` | `7.2.0-rc2-aoripus-ml-gaokun-eog-iris-el2+` | IRIS 视频硬解试验内核（`CONFIG_VIDEO_QCOM_IRIS=m`，上游 iris 设备树节点） | **pre-release**；EL2 下视频核**无法脱离复位** ⇒ IRIS 路线**已放弃**（见 §2 与 `docs/video-decode.md`） |
