@@ -1,0 +1,4 @@
+# gpu-telemetry —— 让 DRM 卡设备暴露 GPU 使用率 / 时钟 / 温度
+#
+# 单条补丁，作用于 mainline stable 7.2.5 的 drivers/gpu/drm/msm/（无需其他补丁前置）。
+0001-drm-msm-expose-gpu-utilization-clock-temperature.patch
