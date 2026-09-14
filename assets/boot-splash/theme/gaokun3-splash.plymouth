@@ -1,0 +1,58 @@
+# gaokun3-splash.plymouth - Plymouth script-theme for HUAWEI MateBook E Go (GK-W76)
+#
+# Centred boot logo + a three-line scrolling boot-log viewport in the
+# bottom-left corner.
+#
+# IMPORTANT: this file is ASCII-only on purpose. Plymouth's ply-key-file parser
+# is byte-oriented; keep it that way.
+#
+# Install location: /usr/share/plymouth/themes/gaokun3-splash/
+# Select with:      plymouth-set-default-theme gaokun3-splash   (if installed)
+#                   or Theme=gaokun3-splash in /etc/plymouth/plymouthd.conf
+
+[Plymouth Theme]
+Name=gaokun3-splash
+Description=Boot logo with a three-line scrolling boot log (easy-for-gaokun)
+
+# The stock Ubuntu build of Plymouth ships script.so (verified present on
+# Ubuntu 26.04 / plymouth 24.004.60).  It is the only stock plugin that can
+# render a logo AND the kernel boot log at the same time.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/gaokun3-splash
+ScriptFile=/usr/share/plymouth/themes/gaokun3-splash/gaokun3-splash.script
+
+# Font used for the boot-log viewport.  MUST be a family that also exists
+# inside the initramfs: Ubuntu 26.04's initramfs carries Ubuntu / Ubuntu Mono
+# (usr/share/fonts/truetype/ubuntu/) plus fontconfig, and NOTHING else.
+# Do not use Cantarell here.
+MonospaceFont=Ubuntu Mono 11
+
+# Boot-log text colour (0xRRGGBBAA).  White, fully opaque.
+ConsoleLogTextColor=0xffffffff
+
+# Backing colour painted behind the log viewport (0xRRGGBBAA).
+# 0x00000080 = translucent black.  Set 0x00000000 for fully transparent.
+ConsoleLogBackgroundColor=0x00000080
+
+# --- Values consumed by gaokun3-splash.script (script-env-vars group) ---
+# See gaokun3-splash.script for how these are used.
+[script-env-vars]
+# Logo size as a fraction of the *smaller* screen dimension (0.10 - 0.60).
+LogoScale=0.28
+# Screen rotation compensation.
+#   0 = no compensation          (if the image lands upright without help)
+#   1 = rotate the theme 90 deg clockwise
+#   3 = rotate the theme 90 deg counter-clockwise
+# fbcon=rotate:1 on this panel means the DRM scanout is *not* rotated by the
+# kernel, so the theme has to compensate.  See RESEARCH.md section 4 for the
+# A/B procedure - if the logo is sideways on the first boot, flip 1 <-> 3.
+RotateQuadrant=1
+# Height of the boot-log viewport in text lines.
+LogLines=3
+# Log viewport margins in pixels, measured in *logical* (un-rotated) space.
+LogMarginX=48
+LogMarginY=48
+# Set to 1 to draw a thin progress bar under the logo.
+ShowProgress=0
