@@ -1,0 +1,409 @@
+From: easy-for-gaokun <noreply@github.com>
+Subject: [PATCH] drm/msm: expose GPU utilization, clock and temperature
+
+System monitors follow the convention established by amdgpu/i915/xe and read
+GPU telemetry from the DRM card's "device" link:
+
+  card?/device/gpu_busy_percent
+  card?/device/hwmon/hwmon?/temp1_input
+  card?/device/hwmon/hwmon?/freq1_input
+
+msm provides none of these, so on SC8280XP (Adreno 690) every GPU field of
+GNOME Resources shows as unavailable even though the data is already in the
+driver: deferred frequency sampling reads the real GMU busy counter every
+50 ms, and the GPU clock and junction temperature are available from the
+devfreq device and the "gpu-thermal" thermal zone.
+
+Register both the attribute group and an hwmon device on the device that the
+DRM core points card?/device at (struct drm_device::dev is the parent platform
+device), which is also where amdgpu/i915/xe register theirs.  hwmon has no
+frequency channel type, so freq1_input is a raw sensor attribute in
+extra_groups, exactly as amdgpu and radeon do it; temp1_input uses the proper
+hwmon temp channel.
+
+gpu_busy_percent reuses the accounting the devfreq governor already performs,
+averaged over a 500 ms window so that a 1 Hz consumer does not see 50 ms of
+noise.  It is updated from msm_devfreq_get_dev_status() rather than read on
+demand, so the sysfs path never touches GMU registers while the GPU may be
+powered down.
+
+Deliberately not exposed: power usage, power cap and the VRAM clock.  This
+hardware has no GPU power/current sensor and no discrete VRAM clock, and
+userspace already renders a missing attribute as "N/A"; a synthesized value
+would be worse than no value.
+
+Tested on HUAWEI MateBook E Go 2022 (GK-W76, SC8280XP, DT gaokun3) on top of
+Linux 7.2.5: card1/device/gpu_busy_percent reads 1-2% on an idle desktop and
+rises under load, freq1_input tracks /sys/class/devfreq/3d00000.gpu/cur_freq,
+and temp1_input tracks the gpu-thermal zone.
+
+Signed-off-by: easy-for-gaokun <noreply@github.com>
+
+---
+diff --git a/drivers/gpu/drm/msm/Makefile b/drivers/gpu/drm/msm/Makefile
+index d0c3a4c67..fb5d6ca3e 100644
+--- a/drivers/gpu/drm/msm/Makefile
++++ b/drivers/gpu/drm/msm/Makefile
+@@ -127,6 +127,7 @@ msm-y += \
+ 	msm_ringbuffer.o \
+ 	msm_submitqueue.o \
+ 	msm_syncobj.o \
++	msm_telemetry.o \
+ 	msm_gpu_tracepoints.o \
+ 
+ msm-$(CONFIG_DRM_MSM_KMS) += \
+diff --git a/drivers/gpu/drm/msm/msm_drv.c b/drivers/gpu/drm/msm/msm_drv.c
+index 32d5ebea2..b73ac7a16 100644
+--- a/drivers/gpu/drm/msm/msm_drv.c
++++ b/drivers/gpu/drm/msm/msm_drv.c
+@@ -178,6 +178,12 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv,
+ 	if (priv->kms_init)
+ 		msm_drm_kms_post_init(dev);
+ 
++	/*
++	 * Best effort: publish GPU utilization, clock and temperature where
++	 * system monitors look for them.
++	 */
++	(void)msm_telemetry_init(dev, priv);
++
+ 	return 0;
+ 
+ err_msm_uninit:
+diff --git a/drivers/gpu/drm/msm/msm_drv.h b/drivers/gpu/drm/msm/msm_drv.h
+index 3787db877..2adeb099a 100644
+--- a/drivers/gpu/drm/msm/msm_drv.h
++++ b/drivers/gpu/drm/msm/msm_drv.h
+@@ -236,6 +236,9 @@ int msm_ioctl_perfcntr_config(struct drm_device *dev, void *data,
+ struct msm_perfcntr_state * msm_perfcntr_init(struct msm_gpu *gpu);
+ void msm_perfcntr_cleanup(struct msm_gpu *gpu);
+ 
++/* GPU telemetry: gpu_busy_percent plus a hwmon with temp1_input/freq1_input */
++int msm_telemetry_init(struct device *dev, struct msm_drm_private *priv);
++
+ #ifdef CONFIG_DEBUG_FS
+ unsigned long msm_gem_shrinker_shrink(struct drm_device *dev, unsigned long nr_to_scan);
+ #endif
+diff --git a/drivers/gpu/drm/msm/msm_gpu.h b/drivers/gpu/drm/msm/msm_gpu.h
+index 6c83b8cbb..953453f2f 100644
+--- a/drivers/gpu/drm/msm/msm_gpu.h
++++ b/drivers/gpu/drm/msm/msm_gpu.h
+@@ -150,6 +150,12 @@ struct msm_gpu_devfreq {
+ 	u64 busy_cycles;
+ 	/** @time: Time of last sampling period.  */
+ 	ktime_t time;
++	/** @busy_percent: GPU utilization (0..100) for the last window. */
++	u32 busy_percent;
++	/** @busy_window_us: Accumulated total time of the pending window. */
++	u64 busy_window_us;
++	/** @busy_window_busy_us: Accumulated busy time of the pending window. */
++	u64 busy_window_busy_us;
+ 	/** @idle_time: Time of last transition to idle.  */
+ 	ktime_t idle_time;
+ 	/**
+@@ -739,6 +745,8 @@ void msm_devfreq_suspend(struct msm_gpu *gpu);
+ void msm_devfreq_boost(struct msm_gpu *gpu, unsigned factor);
+ void msm_devfreq_active(struct msm_gpu *gpu);
+ void msm_devfreq_idle(struct msm_gpu *gpu);
++u32 msm_devfreq_get_busy_percent(struct msm_gpu *gpu);
++unsigned long msm_devfreq_get_freq(struct msm_gpu *gpu);
+ 
+ int msm_gpu_hw_init(struct msm_gpu *gpu);
+ 
+diff --git a/drivers/gpu/drm/msm/msm_gpu_devfreq.c b/drivers/gpu/drm/msm/msm_gpu_devfreq.c
+index 2e1d5c343..5f5b7bc3d 100644
+--- a/drivers/gpu/drm/msm/msm_gpu_devfreq.c
++++ b/drivers/gpu/drm/msm/msm_gpu_devfreq.c
+@@ -74,6 +74,31 @@ static unsigned long get_freq(struct msm_gpu *gpu)
+ 	return clk_get_rate(gpu->core_clk);
+ }
+ 
++/*
++ * A single devfreq sample covers polling_ms (50ms), which is far too noisy for
++ * the 1Hz consumers of gpu_busy_percent, so accumulate into a longer window
++ * before publishing.
++ */
++#define MSM_DEVFREQ_BUSY_WINDOW_US	500000
++
++static void msm_devfreq_update_busy_percent(struct msm_gpu_devfreq *df,
++		u64 busy_time, u64 total_time)
++{
++	u64 percent;
++
++	df->busy_window_us += total_time;
++	df->busy_window_busy_us += busy_time;
++
++	if (df->busy_window_us < MSM_DEVFREQ_BUSY_WINDOW_US)
++		return;
++
++	percent = div64_u64(df->busy_window_busy_us * 100,
++			    df->busy_window_us);
++	df->busy_percent = percent > 100 ? 100 : (u32)percent;
++	df->busy_window_us = 0;
++	df->busy_window_busy_us = 0;
++}
++
+ static int msm_devfreq_get_dev_status(struct device *dev,
+ 		struct devfreq_dev_status *status)
+ {
+@@ -91,6 +116,9 @@ static int msm_devfreq_get_dev_status(struct device *dev,
+ 	df->time = time;
+ 
+ 	if (df->suspended) {
++		df->busy_percent = 0;
++		df->busy_window_us = 0;
++		df->busy_window_busy_us = 0;
+ 		mutex_unlock(&df->lock);
+ 		status->busy_time = 0;
+ 		return 0;
+@@ -109,6 +137,8 @@ static int msm_devfreq_get_dev_status(struct device *dev,
+ 
+ 	status->busy_time = busy_time;
+ 
++	msm_devfreq_update_busy_percent(df, busy_time, status->total_time);
++
+ 	return 0;
+ }
+ 
+@@ -373,3 +403,48 @@ void msm_devfreq_idle(struct msm_gpu *gpu)
+ 	msm_hrtimer_queue_work(&df->idle_work, ms_to_ktime(1),
+ 			       HRTIMER_MODE_REL);
+ }
++
++/**
++ * msm_devfreq_get_busy_percent() - last measured GPU utilization
++ * @gpu: the GPU
++ *
++ * Returns the average utilization (0..100) over the last telemetry window, or
++ * zero when devfreq is not running for this GPU.
++ */
++u32 msm_devfreq_get_busy_percent(struct msm_gpu *gpu)
++{
++	struct msm_gpu_devfreq *df = &gpu->devfreq;
++	u32 percent;
++
++	if (!has_devfreq(gpu))
++		return 0;
++
++	mutex_lock(&df->lock);
++	percent = df->busy_percent;
++	mutex_unlock(&df->lock);
++
++	return percent;
++}
++
++/**
++ * msm_devfreq_get_freq() - current GPU clock in Hz
++ * @gpu: the GPU
++ *
++ * Reports the same frequency the devfreq core does, including the shadow value
++ * kept while the GPU is idling.  Never touches the hardware, so it is safe to
++ * call while the GPU is suspended.
++ */
++unsigned long msm_devfreq_get_freq(struct msm_gpu *gpu)
++{
++	struct msm_gpu_devfreq *df = &gpu->devfreq;
++	unsigned long freq;
++
++	if (!has_devfreq(gpu))
++		return 0;
++
++	mutex_lock(&df->lock);
++	freq = get_freq(gpu);
++	mutex_unlock(&df->lock);
++
++	return freq;
++}
+diff --git a/drivers/gpu/drm/msm/msm_telemetry.c b/drivers/gpu/drm/msm/msm_telemetry.c
+new file mode 100644
+index 000000000..7d6669c52
+--- /dev/null
++++ b/drivers/gpu/drm/msm/msm_telemetry.c
+@@ -0,0 +1,188 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Copyright (c) 2026 The easy-for-gaokun authors
++ *
++ * GPU telemetry for the msm DRM driver.
++ *
++ * System monitors follow the convention established by amdgpu/i915/xe and
++ * look for GPU utilization, clock and temperature under the DRM card's
++ * "device" link:
++ *
++ *	card?/device/gpu_busy_percent
++ *	card?/device/hwmon/hwmon?/temp1_input
++ *	card?/device/hwmon/hwmon?/freq1_input
++ *
++ * On msm that link resolves to the platform device backing the DRM instance
++ * (the DRM core sets struct drm_device::dev to its parent, so card?/device is
++ * that parent), which is therefore where both the attribute group and the
++ * hwmon device are registered.
++ *
++ * Deliberately absent: power usage, power cap and the VRAM clock.  This
++ * hardware exposes no GPU power/current sensor and has no discrete VRAM
++ * clock; a synthesized number would be worse than reporting nothing, and
++ * userspace already renders a missing attribute as "N/A".
++ */
++
++#include <linux/hwmon.h>
++#include <linux/hwmon-sysfs.h>
++#include <linux/thermal.h>
++
++#include "msm_drv.h"
++#include "msm_gpu.h"
++
++#define MSM_TELEMETRY_HWMON_NAME	"msm_gpu"
++#define MSM_TELEMETRY_GPU_TZ		"gpu-thermal"
++
++/*
++ * The GPU may not have been lazily loaded yet (msm loads it on first use), in
++ * which case there is simply nothing to report.
++ */
++static struct msm_gpu *msm_telemetry_gpu(struct device *dev)
++{
++	struct msm_drm_private *priv = dev_get_drvdata(dev);
++	struct msm_gpu *gpu;
++
++	if (!priv)
++		return NULL;
++
++	gpu = priv->gpu;
++
++	return (gpu && gpu->funcs) ? gpu : NULL;
++}
++
++static ssize_t gpu_busy_percent_show(struct device *dev,
++		struct device_attribute *attr, char *buf)
++{
++	struct msm_gpu *gpu = msm_telemetry_gpu(dev);
++
++	return sysfs_emit(buf, "%u\n",
++			  gpu ? msm_devfreq_get_busy_percent(gpu) : 0);
++}
++static DEVICE_ATTR_RO(gpu_busy_percent);
++
++static struct attribute *msm_telemetry_attrs[] = {
++	&dev_attr_gpu_busy_percent.attr,
++	NULL,
++};
++
++static const struct attribute_group msm_telemetry_group = {
++	.attrs = msm_telemetry_attrs,
++};
++
++/*
++ * hwmon: temp1_input uses the proper hwmon temp channel, freq1_input has to be
++ * a raw sensor attribute because hwmon has no frequency channel type (the same
++ * approach amdgpu and radeon take).
++ */
++
++static umode_t msm_telemetry_hwmon_is_visible(const void *drvdata,
++		enum hwmon_sensor_types type, u32 attr, int channel)
++{
++	if (type == hwmon_temp && attr == hwmon_temp_input)
++		return 0444;
++
++	return 0;
++}
++
++static int msm_telemetry_hwmon_read(struct device *dev,
++		enum hwmon_sensor_types type, u32 attr, int channel, long *val)
++{
++	struct thermal_zone_device *tz;
++	int temp, ret;
++
++	if (type != hwmon_temp || attr != hwmon_temp_input)
++		return -EOPNOTSUPP;
++
++	/*
++	 * Resolved on every read: the thermal zone is owned by the tsens
++	 * driver, which may well probe after us, and the lookup is a short
++	 * list walk.
++	 */
++	tz = thermal_zone_get_zone_by_name(MSM_TELEMETRY_GPU_TZ);
++	if (IS_ERR(tz))
++		return PTR_ERR(tz);
++
++	ret = thermal_zone_get_temp(tz, &temp);
++	if (ret)
++		return ret;
++
++	*val = temp;
++
++	return 0;
++}
++
++static ssize_t freq1_input_show(struct device *dev,
++		struct device_attribute *attr, char *buf)
++{
++	struct msm_gpu *gpu = msm_telemetry_gpu(dev);
++
++	return sysfs_emit(buf, "%lu\n",
++			  gpu ? msm_devfreq_get_freq(gpu) : 0UL);
++}
++static SENSOR_DEVICE_ATTR_RO(freq1_input, freq1_input, 0);
++
++static struct attribute *msm_telemetry_hwmon_attrs[] = {
++	&sensor_dev_attr_freq1_input.dev_attr.attr,
++	NULL,
++};
++
++static const struct attribute_group msm_telemetry_hwmon_group = {
++	.attrs = msm_telemetry_hwmon_attrs,
++};
++
++static const struct attribute_group *msm_telemetry_hwmon_groups[] = {
++	&msm_telemetry_hwmon_group,
++	NULL,
++};
++
++static const struct hwmon_channel_info *msm_telemetry_hwmon_info[] = {
++	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT),
++	NULL,
++};
++
++static const struct hwmon_ops msm_telemetry_hwmon_ops = {
++	.is_visible = msm_telemetry_hwmon_is_visible,
++	.read = msm_telemetry_hwmon_read,
++};
++
++static const struct hwmon_chip_info msm_telemetry_hwmon_chip_info = {
++	.ops = &msm_telemetry_hwmon_ops,
++	.info = msm_telemetry_hwmon_info,
++};
++
++/**
++ * msm_telemetry_init() - publish GPU utilization, clock and temperature
++ * @dev: the device backing the DRM instance (i.e. what card?/device points at)
++ * @priv: the driver's private state, used as the hwmon drvdata
++ *
++ * Best effort: the GPU may not be loaded yet when this runs, in which case the
++ * attribute reads simply report zero until it is.
++ *
++ * Return: 0 on success, negative errno on failure.
++ */
++int msm_telemetry_init(struct device *dev, struct msm_drm_private *priv)
++{
++	struct device *hwmon;
++	int ret;
++
++	ret = devm_device_add_group(dev, &msm_telemetry_group);
++	if (ret) {
++		DRM_DEV_ERROR(dev, "couldn't add GPU telemetry attributes: %d\n",
++			      ret);
++		return ret;
++	}
++
++	hwmon = devm_hwmon_device_register_with_info(dev,
++			MSM_TELEMETRY_HWMON_NAME, priv,
++			&msm_telemetry_hwmon_chip_info,
++			msm_telemetry_hwmon_groups);
++	if (IS_ERR(hwmon)) {
++		ret = PTR_ERR(hwmon);
++		DRM_DEV_ERROR(dev, "couldn't register GPU hwmon: %d\n", ret);
++		return ret;
++	}
++
++	DRM_DEV_DEBUG(dev, "GPU telemetry registered as %s\n", dev_name(hwmon));
++
++	return 0;
++}
