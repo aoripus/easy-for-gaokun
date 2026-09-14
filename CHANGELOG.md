@@ -15,6 +15,15 @@
 
 ## [未发布]
 
+### 发布
+
+- **内核产物 `Kernel 7.2.5 (EL1) VENUS r4`**（tag `kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-20260915`，
+  内核串 `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4`，**无尾部 `+`**）：在 r3 基础上加入 **GPU 遥测**
+  （使用率 / 显存占用 / GPU 时钟 / 温度，含绕开应用 `hwmon?` glob 缺陷的单数字 hwmon 别名）。
+  真机复测：Resources 的 GPU 页四项全部有值（547 MHz / 34.2 °C / 231 MB 显存占用），
+  EL1 启动、venus 硬解、触屏 60 s 空闲策略均无回归。发布说明见
+  [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-20260915.md`](docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-20260915.md)。
+
 ### 修复
 
 - **触屏：`himax_lock()`/`himax_unlock()` 中断使能不对称，任何 sysfs 访问都会"打死"触屏中断。**
