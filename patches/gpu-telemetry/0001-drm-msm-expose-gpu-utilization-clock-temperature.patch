@@ -1,5 +1,5 @@
 From: easy-for-gaokun <noreply@github.com>
-Subject: [PATCH] drm/msm: expose GPU utilization, clock and temperature
+Subject: [PATCH] drm/msm: expose GPU utilization, memory, clock and temperature
 
 System monitors follow the convention established by amdgpu/i915/xe and read
 GPU telemetry from the DRM card's "device" link:
@@ -7,12 +7,14 @@ GPU telemetry from the DRM card's "device" link:
   card?/device/gpu_busy_percent
   card?/device/hwmon/hwmon?/temp1_input
   card?/device/hwmon/hwmon?/freq1_input
+  card?/device/mem_info_vram_used
 
 msm provides none of these, so on SC8280XP (Adreno 690) every GPU field of
 GNOME Resources shows as unavailable even though the data is already in the
 driver: deferred frequency sampling reads the real GMU busy counter every
-50 ms, and the GPU clock and junction temperature are available from the
-devfreq device and the "gpu-thermal" thermal zone.
+50 ms, the GPU clock and junction temperature are available from the devfreq
+device and the "gpu-thermal" thermal zone, and the amount of memory backing
+GEM objects is already tracked for the gpu_mem_total tracepoint.
 
 Register both the attribute group and an hwmon device on the device that the
 DRM core points card?/device at (struct drm_device::dev is the parent platform
@@ -27,15 +29,31 @@ noise.  It is updated from msm_devfreq_get_dev_status() rather than read on
 demand, so the sysfs path never touches GMU registers while the GPU may be
 powered down.
 
-Deliberately not exposed: power usage, power cap and the VRAM clock.  This
-hardware has no GPU power/current sensor and no discrete VRAM clock, and
-userspace already renders a missing attribute as "N/A"; a synthesized value
-would be worse than no value.
+mem_info_vram_used reports the GEM memory currently allocated.  There is no
+separate VRAM on this SoC, so mem_info_vram_total is deliberately not
+published: a total would have to be invented, and userspace already renders a
+missing attribute as "N/A".
+
+GNOME Resources finds its hwmon attributes with the glob
+"card?/device/hwmon/hwmon?" - a single '?', so it matches hwmon0..hwmon9 and
+silently finds nothing once the index has two digits, which is what any system
+with more than ten hwmon devices ends up with.  Publish a single digit symlink
+next to the real entry so those monitors keep working; the canonical hwmonN
+entry, the hwmon class directory and the hwmon core are unaffected.  The
+symlink is devres managed and can be dropped once the glob bug is fixed
+upstream.
+
+Deliberately not exposed: power usage, power cap, the VRAM clock and the total
+VRAM size.  This hardware has no GPU power/current sensor and no discrete VRAM
+clock, and userspace already renders a missing attribute as "N/A"; a
+synthesized value would be worse than no value.
 
 Tested on HUAWEI MateBook E Go 2022 (GK-W76, SC8280XP, DT gaokun3) on top of
 Linux 7.2.5: card1/device/gpu_busy_percent reads 1-2% on an idle desktop and
 rises under load, freq1_input tracks /sys/class/devfreq/3d00000.gpu/cur_freq,
-and temp1_input tracks the gpu-thermal zone.
+temp1_input tracks the gpu-thermal zone, mem_info_vram_used reports the live
+GEM total, and card1/device/hwmon/hwmon0 resolves to the real hwmon so that
+GNOME Resources fills in clock, temperature and used VRAM.
 
 Signed-off-by: easy-for-gaokun <noreply@github.com>
 
@@ -215,10 +233,10 @@ index 2e1d5c343..5f5b7bc3d 100644
 +}
 diff --git a/drivers/gpu/drm/msm/msm_telemetry.c b/drivers/gpu/drm/msm/msm_telemetry.c
 new file mode 100644
-index 000000000..7d6669c52
+index 000000000..243e2acb4
 --- /dev/null
 +++ b/drivers/gpu/drm/msm/msm_telemetry.c
-@@ -0,0 +1,188 @@
+@@ -0,0 +1,253 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Copyright (c) 2026 The easy-for-gaokun authors
@@ -232,11 +250,18 @@ index 000000000..7d6669c52
 + *	card?/device/gpu_busy_percent
 + *	card?/device/hwmon/hwmon?/temp1_input
 + *	card?/device/hwmon/hwmon?/freq1_input
++ *	card?/device/mem_info_vram_used
 + *
 + * On msm that link resolves to the platform device backing the DRM instance
 + * (the DRM core sets struct drm_device::dev to its parent, so card?/device is
 + * that parent), which is therefore where both the attribute group and the
 + * hwmon device are registered.
++ *
++ * mem_info_vram_used is the real amount of memory currently backing GEM
++ * objects (the same counter the gpu_mem_total tracepoint reports).  On this
++ * SoC there is no separate VRAM: the GPU allocates from system memory, so
++ * mem_info_vram_total is deliberately not published - a "total" would have to
++ * be invented, and userspace already renders a missing attribute as "N/A".
 + *
 + * Deliberately absent: power usage, power cap and the VRAM clock.  This
 + * hardware exposes no GPU power/current sensor and has no discrete VRAM
@@ -246,6 +271,8 @@ index 000000000..7d6669c52
 +
 +#include <linux/hwmon.h>
 +#include <linux/hwmon-sysfs.h>
++#include <linux/kobject.h>
++#include <linux/sysfs.h>
 +#include <linux/thermal.h>
 +
 +#include "msm_drv.h"
@@ -253,6 +280,18 @@ index 000000000..7d6669c52
 +
 +#define MSM_TELEMETRY_HWMON_NAME	"msm_gpu"
 +#define MSM_TELEMETRY_GPU_TZ		"gpu-thermal"
++
++/*
++ * GNOME Resources locates the hwmon attributes with the glob
++ * "card?/device/hwmon/hwmon?" - a single '?', so it only ever matches
++ * hwmon0..hwmon9 and silently finds nothing once the index reaches two
++ * digits, which is what happens on a system with more than ten hwmon
++ * devices.  Publish a single digit alias for our own hwmon device so those
++ * monitors keep working; the canonical hwmonN entry, /sys/class/hwmon/* and
++ * the hwmon core itself are all unaffected.  Reported upstream as a glob bug;
++ * this alias can be dropped once it is fixed.
++ */
++#define MSM_TELEMETRY_HWMON_ALIAS	"hwmon0"
 +
 +/*
 + * The GPU may not have been lazily loaded yet (msm loads it on first use), in
@@ -281,8 +320,27 @@ index 000000000..7d6669c52
 +}
 +static DEVICE_ATTR_RO(gpu_busy_percent);
 +
++/*
++ * Total size of the GEM objects currently allocated, i.e. how much memory the
++ * GPU is holding.  Maintained by msm_gem.c, so this is a plain counter read
++ * and never touches powered down hardware.
++ */
++static ssize_t mem_info_vram_used_show(struct device *dev,
++		struct device_attribute *attr, char *buf)
++{
++	struct msm_drm_private *priv = dev_get_drvdata(dev);
++	u64 used = 0;
++
++	if (priv)
++		used = atomic64_read(&priv->total_mem);
++
++	return sysfs_emit(buf, "%llu\n", (unsigned long long)used);
++}
++static DEVICE_ATTR_RO(mem_info_vram_used);
++
 +static struct attribute *msm_telemetry_attrs[] = {
 +	&dev_attr_gpu_busy_percent.attr,
++	&dev_attr_mem_info_vram_used.attr,
 +	NULL,
 +};
 +
@@ -371,13 +429,20 @@ index 000000000..7d6669c52
 +	.info = msm_telemetry_hwmon_info,
 +};
 +
++static void msm_telemetry_remove_alias(void *data)
++{
++	struct kobject *parent = data;
++
++	sysfs_remove_link(parent, MSM_TELEMETRY_HWMON_ALIAS);
++}
++
 +/**
-+ * msm_telemetry_init() - publish GPU utilization, clock and temperature
++ * msm_telemetry_init() - publish GPU utilization, memory, clock and temperature
 + * @dev: the device backing the DRM instance (i.e. what card?/device points at)
 + * @priv: the driver's private state, used as the hwmon drvdata
 + *
 + * Best effort: the GPU may not be loaded yet when this runs, in which case the
-+ * attribute reads simply report zero until it is.
++ * clock and utilization reads simply report zero until it is.
 + *
 + * Return: 0 on success, negative errno on failure.
 + */
@@ -402,6 +467,24 @@ index 000000000..7d6669c52
 +		DRM_DEV_ERROR(dev, "couldn't register GPU hwmon: %d\n", ret);
 +		return ret;
 +	}
++
++	/*
++	 * Registered before the link is created so the devres unwind order is
++	 * link removal first, then hwmon unregistration.
++	 */
++	ret = devm_add_action_or_reset(dev, msm_telemetry_remove_alias,
++				       hwmon->kobj.parent);
++	if (ret) {
++		DRM_DEV_ERROR(dev, "couldn't set up hwmon alias cleanup: %d\n",
++			      ret);
++		return ret;
++	}
++
++	ret = sysfs_create_link(hwmon->kobj.parent, &hwmon->kobj,
++				MSM_TELEMETRY_HWMON_ALIAS);
++	if (ret)
++		DRM_DEV_DEBUG(dev, "couldn't add %s alias: %d\n",
++			      MSM_TELEMETRY_HWMON_ALIAS, ret);
 +
 +	DRM_DEV_DEBUG(dev, "GPU telemetry registered as %s\n", dev_name(hwmon));
 +
