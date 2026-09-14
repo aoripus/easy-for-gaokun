@@ -140,12 +140,20 @@ if [ "$NO_KERNEL" = 0 ]; then
     die "--modules 既不是文件也不是目录: $MODULES"
   fi
 
-  # 产物常把模块装在 <ver>/ 子目录里，归一化一层
-  if [ -d "/lib/modules/$KVER/$KVER" ] && [ ! -d "/lib/modules/$KVER/kernel" ]; then
-    info "归一化模块目录层级"
-    mv "/lib/modules/$KVER/$KVER" "/lib/modules/$KVER.tmp"
-    rm -rf "/lib/modules/$KVER"
-    mv "/lib/modules/$KVER.tmp" "/lib/modules/$KVER"
+  # 产物可能把模块装在 <ver>/ 或 lib/modules/<ver>/ 子目录里，归一化一层。
+  # 后者是本项目 modules-*.tar.zst 的形态：为了能直接 `tar -C /` 手动展开，
+  # 包内保留 lib/modules/<ver>/... 前缀，由本脚本负责拉平（实测踩过：漏了这
+  # 一层时 /lib/modules/<ver>/kernel 不存在，depmod 报不出依赖、initrd 缺模块）。
+  if [ ! -d "/lib/modules/$KVER/kernel" ]; then
+    for nested in "/lib/modules/$KVER/$KVER" "/lib/modules/$KVER/lib/modules/$KVER"; do
+      if [ -d "$nested" ]; then
+        info "归一化模块目录层级（$nested）"
+        mv "$nested" "/lib/modules/$KVER.tmp"
+        rm -rf "/lib/modules/$KVER"
+        mv "/lib/modules/$KVER.tmp" "/lib/modules/$KVER"
+        break
+      fi
+    done
   fi
   [ -d "/lib/modules/$KVER/kernel" ] || info "警告: /lib/modules/$KVER/kernel 不存在，确认模块包内容"
   command -v depmod >/dev/null && { info "depmod -a $KVER"; depmod -a "$KVER" || info "警告: depmod 返回非 0"; }
