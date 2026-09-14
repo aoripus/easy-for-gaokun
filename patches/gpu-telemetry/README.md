@@ -73,7 +73,7 @@
 
 ## 实测（GK-W76 / SC8280XP / Adreno 690 / Linux 7.2.5 / r4-dev）
 
-```
+```console
 /sys/class/drm/card1/device/gpu_busy_percent      -> 1..2（桌面空闲）
 /sys/class/drm/card1/device/hwmon/hwmon15/name    -> msm_gpu
 /sys/class/drm/card1/device/hwmon/hwmon15/temp1_input -> 35200..35900（35.2–35.9 °C）
