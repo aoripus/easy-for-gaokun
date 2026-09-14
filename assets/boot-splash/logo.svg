@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  easy-for-gaokun: Plymouth boot-splash mark (vector master).
+
+  ORIGINAL, vendor-neutral geometric monogram: the letters "G3" (Gaokun 3)
+  built only from circles, arcs and one rectangle inside a stroked rounded
+  square. It deliberately contains no vendor trademark and no traced logo of
+  any kind, and it uses no font: every glyph is an explicit path, so the file
+  renders identically on a machine with no fonts installed (initramfs, boot
+  splash, CI).
+
+  This file and make-logo.py describe exactly the same geometry; the numbers
+  below are mirrored 1:1 by the constants at the top of make-logo.py, and
+  logo.png / logo-rot90.png / logo-rot270.png are rasterised from them.
+  Run _qa/svg-check.py to prove the two descriptions still agree.
+
+  Canvas    : 512 x 512 design units (rendered at 512 x 512 px, RGBA)
+  Colours   : frame #4EC9B0 (teal), monogram #FFFFFF (white)
+  Background: none, the mark is transparent, for a dark splash background
+
+  Geometry (all values are stroke *centre* lines):
+    frame  rounded square, centreline 66..446, corner r=78, stroke 28
+           so outer 52..460 and inner hole 80..432
+    G      ring centre (189,256) r=70, stroke 30, opened +/-34 deg about
+           3 o'clock; crossbar from the ring centre out to the outer radius
+    bar    (189,256) to (274,256), stroke 30
+    3      two arcs r=35, stroke 30, centres (358,221) and (358,291),
+           each sweeping 250 deg; they meet at the waist (358,256)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"
+     viewBox="0 0 512 512" role="img" aria-label="easy-for-gaokun G3 mark">
+
+  <title>easy-for-gaokun G3 mark</title>
+  <desc>Original geometric monogram for the easy-for-gaokun project splash screen.</desc>
+
+  <!-- Outer frame: stroked rounded square, teal -->
+  <rect x="66" y="66" width="380" height="380" rx="78" ry="78"
+        fill="none" stroke="#4EC9B0" stroke-width="28"/>
+
+  <!-- Letter G: ring opened 68 degrees on the 3 o'clock side -->
+  <path d="M 247.033 216.857
+           A 70 70 0 1 0 247.033 295.143"
+        fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="butt"/>
+
+  <!-- Letter G: crossbar, from the ring centre out to the outer radius -->
+  <path d="M 189 256 H 274"
+        fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="butt"/>
+
+  <!-- Digit 3: upper arc, 250 degrees from the upper left round to the waist -->
+  <path d="M 325.111 209.029
+           A 35 35 0 1 1 358 256"
+        fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="butt"/>
+
+  <!-- Digit 3: lower arc, mirrored about the waist -->
+  <path d="M 358 256
+           A 35 35 0 1 1 325.111 302.971"
+        fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="butt"/>
+</svg>
