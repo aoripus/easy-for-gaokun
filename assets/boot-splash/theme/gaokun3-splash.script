@@ -1,0 +1,135 @@
+# gaokun3-splash.script
+#
+# Plymouth "script" plugin theme for the HUAWEI MateBook E Go 2022 (GK-W76,
+# SC8280XP / DT gaokun3) on Ubuntu 26.04, plymouth 24.004.60.
+#
+# Layout: the panel's DRM scanout is the NATIVE 1600x2560 portrait buffer.
+# In *logical* (upright) space the theme looks like this:
+#
+#     +------------------------------------------+  logical 2560x1600
+#     |                                          |
+#     |                [ LOGO ]                  |
+#     |                                          |
+#     |                                          |
+#     |  > line N-2                              |  <- bottom-left boot log,
+#     |  > line N-1                              |     3 lines, new lines
+#     |  > line N                                |     push the old ones up
+#     +------------------------------------------+
+#
+# !!! READ THIS BEFORE EDITING !!!
+#
+# 1. THE BOOT LOG IS *NOT* DRAWN BY THIS SCRIPT.
+#    The script language has NO API for kernel/boot messages: there is no
+#    SetBootOutputFunction, and the console viewer is not reachable from
+#    script.  The stock `script` plugin handles it internally:
+#      * plymouthd reads /dev/kmsg (ply_kmsg_reader_*) and keeps a boot buffer;
+#      * the daemon hands that buffer, and every later chunk, to the plugin via
+#        the plugin-interface callback `on_boot_output`
+#        (src/libply-splash-core/ply-boot-splash.c:625-626);
+#      * script/plugin.c::on_boot_output (lines 723-748) feeds it into a
+#        ply_console_viewer_t, which owns the "newest N lines" queue and
+#        scrolls automatically (ply-console-viewer.c:168-253).
+#    => "3 lines, bottom-left, new lines push up" comes from
+#       [script] MonospaceFont / ConsoleLogTextColor / ConsoleLogBackgroundColor
+#       plus the viewport patch shipped in ../patches/, not from this file.
+#    Verified on the target device: script.so imports all eleven
+#    ply_console_viewer_* symbols and libply-splash-graphics.so.5 exports
+#    ply_console_viewer_preferred (nm -D; see RESEARCH.md section 2).
+#
+# 2. THIS SCRIPT ONLY PAINTS THE LOGO.
+#    Sprites are composited AFTER the console viewer, so the logo always wins
+#    where the two overlap.
+#
+# 3. ROTATION.  `fbcon=rotate:1` rotates the VT console only.  Plymouth's DRM
+#    renderer never consults it, and this panel exposes no DRM
+#    "panel orientation" property, so the kernel does not rotate the scanout.
+#    The theme therefore rotates itself by RotateQuadrant quarter-turns
+#    (1 = 90 deg clockwise, 3 = 90 deg counter-clockwise).  The script
+#    language only offers per-image Image.Rotate() - there is no Window-level
+#    rotation - so each image is rotated and then placed by place_image().
+#
+# 4. Only `if` is used for branching below, and every variable is assigned
+#    before use, because there is no way to unit-test this file off-device.
+
+# --------------------------------------------------------------------------
+# Configuration.  Values come from the [script-env-vars] group of the
+# .plymouth file; those are injected as globals *before* this file runs
+# (script/plugin.c:327-335), so the edits below are re-clamping, not defaults.
+# Keep the same names as the keys in the .plymouth file.
+# --------------------------------------------------------------------------
+if (LogoScale <= 0)      { LogoScale = 0.28; }
+if (RotateQuadrant > 3)  { RotateQuadrant = 0; }
+
+# Quarter-turn angles.  Image.Rotate() ends up in
+# ply_pixel_buffer_rotate(image, w/2, h/2, angle), so the unit is radians.
+HALF_PI       = 1.5707963267948966;
+QUARTER_TURNS = [ 0, HALF_PI, Math.Pi, 3 * HALF_PI ];
+ROT           = QUARTER_TURNS[RotateQuadrant];
+
+# --------------------------------------------------------------------------
+# Background: solid black, like the stock bgrt/spinner themes.
+# --------------------------------------------------------------------------
+Window.SetBackgroundTopColor   (0.0, 0.0, 0.0);
+Window.SetBackgroundBottomColor(0.0, 0.0, 0.0);
+
+SCREEN_W = Window.GetWidth  ();
+SCREEN_H = Window.GetHeight ();
+
+# Logical (upright) canvas.  For a quarter-turn the axes are swapped.
+LOGICAL_W = SCREEN_W;
+LOGICAL_H = SCREEN_H;
+if (RotateQuadrant == 1 || RotateQuadrant == 3) {
+  LOGICAL_W = SCREEN_H;
+  LOGICAL_H = SCREEN_W;
+}
+
+# place_image (image, lx, ly)
+#
+# Returns a Sprite showing `image` rotated by ROT, positioned so that the
+# image's top-left corner lands at logical position (lx, ly) of the upright
+# canvas.  With RotateQuadrant == 1 the mapping is
+#     scan_x = SCREEN_W - ly - h      scan_y = lx
+fun place_image (image, lx, ly)
+{
+  rotated = image;
+  if (ROT != 0) { rotated = image.Rotate (ROT); }
+
+  w = rotated.GetWidth  ();
+  h = rotated.GetHeight ();
+
+  sx = lx;
+  sy = ly;
+  if (RotateQuadrant == 1) { sx = SCREEN_W - ly - h; sy = lx; }
+  if (RotateQuadrant == 3) { sx = ly;               sy = SCREEN_H - lx - w; }
+
+  sprite = Sprite (rotated);
+  sprite.SetX (sx);
+  sprite.SetY (sy);
+  return sprite;
+}
+
+# --------------------------------------------------------------------------
+# Centred logo.  Drop-in asset: replace logo.png and nothing else changes.
+# (Image() resolves the filename relative to ImageDir; "special://logo" would
+# load Plymouth's own watermark, and a missing/unloadable file yields NULL -
+# script-lib-image.c:49-77.)
+# --------------------------------------------------------------------------
+logo_image = Image ("logo.png");
+logo_w     = LOGICAL_H * LogoScale;    # square reference size, short side frac
+logo_h     = logo_w;
+
+if (logo_image != NULL) {
+  aspect = logo_image.GetHeight () / logo_image.GetWidth ();
+  if (aspect > 0) { logo_h = logo_w * aspect; }
+
+  place_image (logo_image.Scale (logo_w, logo_h),
+               (LOGICAL_W - logo_w) / 2,
+               (LOGICAL_H - logo_h) / 2);
+}
+
+# --------------------------------------------------------------------------
+# Nothing here animates, so lower the plugin's default refresh rate.  The
+# console viewer keeps refreshing on its own 60 Hz timer
+# (TERMINAL_OUTPUT_UPDATE_INTERVAL in ply-console-viewer.c).
+# --------------------------------------------------------------------------
+Plymouth.SetRefreshRate (10);
