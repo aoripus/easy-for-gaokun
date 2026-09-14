@@ -124,6 +124,67 @@ cat /sys/class/drm/card1/device/gpu_busy_percent
 cat /sys/class/devfreq/3d00000.gpu/trans_stat | head
 ```
 
+## ★ 追加修复（真机验证后）：显存占用 + 单数字 hwmon 别名
+
+首轮 r4-dev 装机只让**使用率**有了数据，温度/时钟/功耗仍然 N/A。抓应用 trace 才确认
+这不是内核没暴露（`hwmon15` 一直在，root 与普通用户都能读），而是**应用的 glob 缺陷**：
+
+> `resources` 找 hwmon 用的是 `card?/device/hwmon/hwmon?` —— **单个 `?`**，只匹配
+> `hwmon0…hwmon9`。本机 hwmon 索引是 **15**（`/sys/class/hwmon` 共 26 个），于是
+> `first_hwmon_path: None`，走 hwmon 的三项全部 N/A；而走 `gpu_busy_percent` 的使用率正常。
+
+任何 hwmon 数量 ≥10 的机器都会踩到，**与 msm 无关**。因此补丁追加两项：
+
+| 追加项 | 做法 | 结果 |
+|---|---|---|
+| `mem_info_vram_used` | 读 `priv->total_mem`（msm 为 `gpu_mem_total` tracepoint 维护的真实 GEM 计数器），**不碰硬件** | 应用「显存占用」有值（实测 230.8 MiB → 233.6 MiB，随桌面 ±几 MiB） |
+| `hwmon0 -> hwmonN` 别名 | `sysfs_create_link(hwmon->kobj.parent, &hwmon->kobj, "hwmon0")`，并用 `devm_add_action_or_reset()` 保证在 hwmon 注销之前删除 | `first_hwmon_path: Some(…/hwmon0)`，时钟与温度立刻有值 |
+
+**为什么必须在核心里做**：sysfs 不接受用户态创建符号链接（`ln -s` 直接 `Permission denied`），
+所以 udev 规则/启动脚本都做不到这件事。该别名是**为绕过应用缺陷而存在的兼容层**，
+上游把 glob 改成 `hwmon*` 之后应当删除（也不投稿，见 §7）。
+
+### 追加修复后的实测（2026-09-15 装机复测）
+
+```console
+$ ls /sys/class/drm/card1/device/hwmon/
+hwmon0 -> hwmon15
+hwmon15
+
+$ cat /sys/class/drm/card1/device/hwmon/hwmon0/name
+msm_gpu
+$ cat /sys/class/drm/card1/device/hwmon/hwmon0/temp1_input
+34200                          # 34.2 °C
+$ cat /sys/class/drm/card1/device/hwmon/hwmon0/freq1_input
+270000000                      # 270 MHz，与 devfreq cur_freq 一致
+$ cat /sys/class/drm/card1/device/mem_info_vram_used
+242061312                      # 230.8 MiB
+```
+
+同一时刻应用自己的 trace：
+
+```text
+TRACE resources::utils::gpu > Found hwmon at "/sys/class/drm/card1/device/hwmon/hwmon0"
+TRACE resources::utils::gpu > Created GPU object of "/sys/class/drm/card1":
+      OtherGpu { ..., first_hwmon_path: Some("/sys/class/drm/card1/device/hwmon/hwmon0") }
+TRACE resources::utils::gpu > Gathered GPU data for 1: GpuData { usage_fraction: Some(0.0),
+      used_vram: Some(244924416), clock_speed: Some(547000000.0), temperature: Some(34.2),
+      encode_fraction: None, decode_fraction: None, total_vram: None, vram_speed: None,
+      power_usage: None, power_cap: None, power_cap_max: None, link: None, nvidia: false }
+```
+
+⇒ **使用率、显存占用、GPU 时钟、温度四项全部到位**（时钟那一刻是 547 MHz，说明拿到了
+真实调频值而不是 OPP 下限）。仍然 N/A 的只剩"本机确实没有该传感器/该物理量"的几项。
+
+### 取证方法（`resources` 是单实例应用，必须这样抓日志）
+
+```sh
+pkill -f /usr/bin/resources; sleep 2   # 直接再启动只会激活已有窗口、不打印日志
+sudo -u user env XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 \
+    RUST_LOG=trace timeout 12 /usr/bin/resources > /tmp/resources-trace.log 2>&1
+grep 'utils::gpu' /tmp/resources-trace.log
+```
+
 ## 7. 上游状态与差异说明
 
 - **上游 msm 既没有 hwmon，也没有 `gpu_busy_percent`**；`gpu_busy_percent` 全树只出现在
@@ -139,6 +200,7 @@ cat /sys/class/devfreq/3d00000.gpu/trans_stat | head
 
 | 项 | 值 |
 |---|---|
-| 首次落地内核 | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-dev`（2026-09-14 装机验证） |
-| 补丁 | [`patches/gpu-telemetry/0001-…`](../patches/gpu-telemetry/)（6 文件 / +281 行） |
+| 首次落地内核 | `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-dev`（2026-09-14 首次装机，2026-09-15 补齐显存占用与 hwmon 别名后复测通过） |
+| 补丁 | [`patches/gpu-telemetry/0001-…`](../patches/gpu-telemetry/)（6 文件 / +346 行） |
 | 应用侧依据 | `resources 1.10.2` 上游源码（`nokyan/resources`），**不是**靠 `strings` 猜的 |
+| 应用侧缺陷 | `hwmon?` 单字符 glob 只匹配 `hwmon0…hwmon9`（任何 hwmon ≥10 的机器都会踩到），本项目用内核侧兼容别名绕开 |
