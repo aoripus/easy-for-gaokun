@@ -60,14 +60,26 @@
   `gpu-thermal`。实测（GK-W76 / `7.2.5 …-r4-dev`）：空闲 **1–2%**、施加 GPU 负载时上升；
   `freq1_input` 与 `/sys/class/devfreq/3d00000.gpu/cur_freq` 一致；`temp1_input` 与
   `gpu-thermal` 一致。
+  **补齐显存占用**：`mem_info_vram_used` 直接读 msm 为 `gpu_mem_total` tracepoint 维护的真实
+  GEM 计数器（读路径不碰硬件）；本机是 UMA、没有独立显存，故 `mem_info_vram_total` 有意不提供。
+  **补齐单数字 hwmon 别名**：`resources` 用 `card?/device/hwmon/hwmon?` 这个**单字符 glob**
+  找 hwmon，索引到两位数（本机 15）就永远匹配不到，于是时钟/温度/功耗全部 N/A；内核侧用
+  `sysfs_create_link()` 造 `hwmon0 -> hwmonN` 别名绕开（devres 管理，上游修好 glob 即可删）。
+  复测应用 trace：`first_hwmon_path: Some(…/hwmon0)`、`clock_speed: Some(547000000)`、
+  `temperature: Some(34.2)`、`used_vram: Some(244924416)`。
   **功耗 / 显存频率 / 功耗墙不提供** —— 本机**没有任何 GPU 功耗/电流传感器**（EC hwmon 只有温度、
   电池 hwmon 只有整机电流、PMIC ADC 只有温度通道、调节器只报电压），且设备树 GPU OPP 用的是
   `opp-level`（RPMH 档位）而非 `opp-microvolt`、没有 `dynamic-power-coefficient`
   ⇒ 连上游 devfreq-cooling 的标准功率模型都无法估；**编一个数字比显示 N/A 更糟**。
   详见 [`docs/gpu-telemetry.md`](docs/gpu-telemetry.md)。
-- **`patches/gpu-telemetry/`**：msm 遥测补丁（6 文件 / +281 行，含新增 `msm_telemetry.c` 188 行），
+- **`patches/gpu-telemetry/`**：msm 遥测补丁（6 文件 / +346 行，含新增 `msm_telemetry.c` 253 行），
   基线是 mainline stable v7.2.5 的 `drivers/gpu/drm/msm/`，**不依赖本项目其他补丁**；
   上游目前没有等价物（msm 既无 hwmon 也无该属性），属真实增量。
+- **`scripts/gk-install-kernel.sh` 归一化模块包层级**：本项目 `modules-*.tar.zst` 内含
+  `lib/modules/<ver>/…` 前缀，而脚本把包展开到 `/lib/modules/<ver>/` 之下，会得到嵌套目录
+  `/lib/modules/<ver>/lib/modules/<ver>/kernel`（`depmod` 找不到 `modules.order`、initrd 缺模块，
+  脚本只打印一句警告就继续）。原有的归一化分支只覆盖 `<ver>/<ver>` 形态，现已两种都覆盖，
+  并在真机上用同一个 tar 包重跑验证。
 - **内核产物 `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-dev`**（内部诊断构建，装机验证，未发布）：
   在 r3 基础上加入 GPU 遥测，并打开 `CONFIG_PM_DEBUG`/`CONFIG_PM_SLEEP_DEBUG`/`CONFIG_PM_ADVANCED_DEBUG`
   以便用 `pm_wakeup_irq`/`pm_test`/`pm_debug_messages` 继续排查待机功耗。
