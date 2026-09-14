@@ -51,6 +51,26 @@
   基线是 r1/r2 出厂驱动（社区驱动 + AFE 传输层），可用 `git apply` / `patch -p1` 落到内核树。
 - **`docs/touch-idle-policy.md`**：触屏空闲中断治理笔记（现象量化、架构根因、AFE 语义实测表、
   r3 策略与收益、未采纳方案、诊断节点用法、上游化建议）。
+- **GPU 遥测：`resources` 的显卡页不再"全部不可用"。** 系统监视器（GNOME Resources 等）按
+  amdgpu/i915/xe 的惯例从**卡设备的 `device` 链接**下取值：`card?/device/gpu_busy_percent`、
+  `card?/device/hwmon/hwmon?/temp1_input`、`.../freq1_input`，而 msm 三样都没有
+  （`gpu_busy_percent` 全树只出现在 `amdgpu`）。本项目补上这三个**只读**节点：使用率复用
+  devfreq 已经在算的 GMU busy 计数器（**500 ms 窗口**平均，且**不在 sysfs 读路径上读寄存器**，
+  避免 GPU/GMU 掉电时访问硬件），时钟来自 devfreq（含 idle 影子频率），温度来自 thermal zone
+  `gpu-thermal`。实测（GK-W76 / `7.2.5 …-r4-dev`）：空闲 **1–2%**、施加 GPU 负载时上升；
+  `freq1_input` 与 `/sys/class/devfreq/3d00000.gpu/cur_freq` 一致；`temp1_input` 与
+  `gpu-thermal` 一致。
+  **功耗 / 显存频率 / 功耗墙不提供** —— 本机**没有任何 GPU 功耗/电流传感器**（EC hwmon 只有温度、
+  电池 hwmon 只有整机电流、PMIC ADC 只有温度通道、调节器只报电压），且设备树 GPU OPP 用的是
+  `opp-level`（RPMH 档位）而非 `opp-microvolt`、没有 `dynamic-power-coefficient`
+  ⇒ 连上游 devfreq-cooling 的标准功率模型都无法估；**编一个数字比显示 N/A 更糟**。
+  详见 [`docs/gpu-telemetry.md`](docs/gpu-telemetry.md)。
+- **`patches/gpu-telemetry/`**：msm 遥测补丁（6 文件 / +281 行，含新增 `msm_telemetry.c` 188 行），
+  基线是 mainline stable v7.2.5 的 `drivers/gpu/drm/msm/`，**不依赖本项目其他补丁**；
+  上游目前没有等价物（msm 既无 hwmon 也无该属性），属真实增量。
+- **内核产物 `7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-dev`**（内部诊断构建，装机验证，未发布）：
+  在 r3 基础上加入 GPU 遥测，并打开 `CONFIG_PM_DEBUG`/`CONFIG_PM_SLEEP_DEBUG`/`CONFIG_PM_ADVANCED_DEBUG`
+  以便用 `pm_wakeup_irq`/`pm_test`/`pm_debug_messages` 继续排查待机功耗。
 
 ### 变更
 
