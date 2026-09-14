@@ -21,6 +21,7 @@
 | [`touch-spi-mode/`](touch-spi-mode/README.md) | DTS：把触屏接口模式脚 `gpio174` 置低，使 HX83121A 走 SPI | ✅ | 未投稿（本机适配） | 1 | 已生效（触屏可用） |
 | [`spi-gsi/`](spi-gsi/README.md) | 触屏 QUP-SPI 走 GSI（DMA）模式 | ✅ | 已投稿、未合入（v1） | 2 | 已生效（r1 起） |
 | [`touch-idle/`](touch-idle/README.md) | 触屏驱动：中断使能修复 + 空闲门控采样 | ✅ | 未投稿（本机驱动增量） | 1 | 已生效（r3 起） |
+| [`gpu-telemetry/`](gpu-telemetry/README.md) | msm 驱动暴露 GPU 使用率/时钟/温度（卡设备 sysfs + hwmon） | ✅ | 未投稿（上游无等价物） | 1 | 已生效（r4 起） |
 | [`el2-v7.2/`](el2-v7.2/README.md) | EL2 补丁集在 v7.2-rc2 上的适配 | ❌ | 社区补丁集的适配版 | 3 | 历史归档 |
 | [`iris-el2/`](iris-el2/README.md) | IRIS 视频驱动在 EL2 下的适配 | ❌ | 未投稿 | 1 | 历史归档（路线已放弃） |
 
