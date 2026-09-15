@@ -24,6 +24,21 @@
   EL1 启动、venus 硬解、触屏 60 s 空闲策略均无回归。发布说明见
   [`docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-20260915.md`](docs/releases/kernel-7.2.5-aoripus-ml-gaokun3-eog-el1-venus-r4-20260915.md)。
 
+### 文档
+
+- **新增 Windows 11 改造可行性报告（`easy-for-gaokun-win` 立项前评估）**：主报告
+  [`docs/win11-feasibility.md`](docs/win11-feasibility.md)，外加四个工作包的独立章节
+  [`docs/win11-oem-customization.md`](docs/win11-oem-customization.md)（(a) 原厂基线解剖）、
+  [`docs/win11-manager-app.md`](docs/win11-manager-app.md)（(b) 自研管家接口边界）、
+  [`docs/win11-power-tuning.md`](docs/win11-power-tuning.md)（(c) 调度/省电）、
+  [`docs/win11-wsl-android.md`](docs/win11-wsl-android.md)（(d) WSL2 与 Android）。
+  三条最关键的结论：① 原厂**驱动**转储已经是 ARM64 原生，但原厂预装的**应用**里 **91.3% 的二进制是
+  x86/x64**（华为生态组件整体 x64 + 装的是 **x64 版 Office**）⇒「把 x64 应用重写成 ARM64」应重新定义为
+  "换官方 ARM64 版 / 换开源等价物 / 自研 / 保留 x64 模拟"，反编译重写不可行；② **原厂 OS 镜像不在现有转储里**
+  （`Recovery/` 下无 `.swm/.wim/.esd`）⇒ 抹盘前必须先完整 dump 内置盘的 WinPE / Onekey / WinRE 三个分区，
+  本机无 EDL/9008 救援通道；③ WSL2 在 ARM64 上本体可用，但 **GPU 加速当前不可用**
+  （`dxgkrnl` 不创建 `/dev/dri/renderD128`），且 **ARM64 无嵌套虚拟化** ⇒ AVD/redroid/crosvm 一类方案整体出局。
+
 ### 修复
 
 - **触屏：`himax_lock()`/`himax_unlock()` 中断使能不对称，任何 sysfs 访问都会"打死"触屏中断。**
