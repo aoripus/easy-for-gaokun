@@ -6,8 +6,8 @@ Purpose:  let a `script` theme pin the boot-log viewport to the bottom-left of
           the screen and to a fixed number of lines, instead of the hardcoded
           "one label per text row, whole screen, anchored top-left" behaviour.
 
-WHY A PATCH IS NEEDED
----------------------
+## WHY A PATCH IS NEEDED
+
 `ply_console_viewer_new()` derives its geometry from the display and nothing
 else (ply-console-viewer.c:119-124):
 
@@ -31,16 +31,17 @@ The good news: the *scrolling* half already works.  `update_console_messages()`
 keeps only the newest `visible_line_count` lines (lines 185-247), which is
 exactly "new lines push the old ones up".  Only the viewport is missing.
 
-Preferred approach for this project
------------------------------------
+## Preferred approach for this project
+
 Do NOT carry a patch.  Fork `src/libply-splash-graphics/ply-console-viewer.[ch]`
 into `drivers/plymouth/` (or `src/`) inside this repo and edit the fork; then
 ship a small wrapper that builds only that piece against the distro headers.
 The two edits below are the entire behavioural delta either way.
 
 --------------------------------------------------------------------------------
-EDIT 1 - src/libply-splash-graphics/ply-console-viewer.h
---------------------------------------------------------------------------------
+
+## EDIT 1 - src/libply-splash-graphics/ply-console-viewer.h
+
 After the existing `ply_console_viewer_set_text_color` declaration
 (currently line 46-47), append:
 
@@ -51,8 +52,8 @@ After the existing `ply_console_viewer_set_text_color` declaration
                                             size_t                line_count);
 
 --------------------------------------------------------------------------------
-EDIT 2 - src/libply-splash-graphics/ply-console-viewer.c
---------------------------------------------------------------------------------
+
+## EDIT 2 - src/libply-splash-graphics/ply-console-viewer.c
 
 (2a) struct _ply_console_viewer (after the existing `uint32_t text_color;`,
      currently line 54) - add two fields:
@@ -120,9 +121,13 @@ EDIT 2 - src/libply-splash-graphics/ply-console-viewer.c
             console_message_label = ply_list_node_get_data (node);
             ply_label_show (console_message_label, console_viewer->display,
                             console_viewer->viewport_x
+
                                     + console_viewer->font_width / 2,
+
                             console_viewer->viewport_y
+
                                     + console_viewer->font_height * label_index);
+
             ply_label_set_hex_color (console_message_label, label_color);
             label_index++;
     }
@@ -135,10 +140,14 @@ EDIT 2 - src/libply-splash-graphics/ply-console-viewer.c
             console_message_label = ply_list_node_get_data (node);
             ply_label_draw_area (console_message_label, buffer,
                                  MAX (x, console_viewer->viewport_x
+
                                              + console_viewer->font_width / 2),
+
                                  MAX (y, console_viewer->viewport_y
+
                                              + console_viewer->font_height
-                                                     * label_index),
+                                                     + label_index),
+
                                  MIN (ply_label_get_width (console_message_label),
                                       width),
                                  MIN (height, console_viewer->font_height));
@@ -166,8 +175,8 @@ EDIT 2 - src/libply-splash-graphics/ply-console-viewer.c
     }
 
 --------------------------------------------------------------------------------
-EDIT 3 - src/plugins/splash/script/plugin.c
---------------------------------------------------------------------------------
+
+## EDIT 3 - src/plugins/splash/script/plugin.c
 
 (3a) struct _ply_boot_splash_plugin (currently lines 100-106) - add:
 
@@ -251,8 +260,9 @@ EDIT 3 - src/plugins/splash/script/plugin.c
       theme does.)
 
 --------------------------------------------------------------------------------
-NEW CONFIG KEYS AFTER THE PATCH
---------------------------------------------------------------------------------
+
+## NEW CONFIG KEYS AFTER THE PATCH
+
 [script]
 ConsoleLogLineCount   = 3      ; 0 = fill the screen (old behaviour)
 ConsoleLogViewportX   = 48     ; top-left of the log block, scanout coords
@@ -266,13 +276,20 @@ once the theme's rotation compensation is taken into account.  Verify visually:
 see RESEARCH.md section 4 for the two-line A/B procedure.
 
 --------------------------------------------------------------------------------
-RISK
---------------------------------------------------------------------------------
+
+## RISK
+
 Priority: LOW-MEDIUM.
-* The only concurrency-sensitive part is the existing console-viewer API; the
+
++ The only concurrency-sensitive part is the existing console-viewer API; the
+
   patch adds no new threads, fds or allocations beyond what already exists.
-* `ply_console_viewer_new()` gains a parameter, so the patch MUST be applied to
+
++ `ply_console_viewer_new()` gains a parameter, so the patch MUST be applied to
+
   script.so, console-viewer.so and libply-splash-graphics together.  Mixing a
   patched script.so with an unpatched library gives a runtime symbol mismatch.
-* Plymouth's own fallback is unaffected: if the theme fails to load, plymouthd
+
++ Plymouth's own fallback is unaffected: if the theme fails to load, plymouthd
+
   falls back to `text.plymouth` / `details` (see RESEARCH.md section 6).
