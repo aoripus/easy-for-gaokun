@@ -75,6 +75,25 @@ ground truth，比我们凭经验猜要可靠得多（正在逐条解析原文�
 到点转 S4。这个方案还有个额外好处——**不必先解决 PDC 秒醒问题**：秒醒只是退回 s2idle，
 最终仍会被 hibernate 兜住。前置条件：本机 `/sys/power/state` 必须含 `disk`，且要有可用的 swap 分区。
 
+### 1.5 Linux 侧 S4 可用性实测（r5 的直接依据）【已核实】
+
+在平板（本项目的 r4/r4-dev 内核）上实测：
+
+| 检查 | 结果 |
+|---|---|
+| `/sys/power/state` | **`freeze mem disk`** —— 支持 s2idle / S3 / **S4(disk)** |
+| 内核配置 | `CONFIG_HIBERNATION=y`、`CONFIG_HIBERNATION_SNAPSHOT_DEV=y`、`CONFIG_SWAP=y`、`CONFIG_PM_SLEEP=y` |
+| swap | **完全没有**（`/proc/swaps` 空）；cmdline 上也没有 `resume=` |
+| systemd | `systemd 259`，`systemd-suspend-then-hibernate.service` **存在** |
+| 内存 | 15 GiB 级（hibernation `image_size` 提示 5.9 GiB） |
+
+⇒ **结论**：本机**具备 S4 能力**，`suspend-then-hibernate` 这条路只差三件事：
+① 建一块 **swap 分区**（优于 swap 文件：免 `resume_offset`，且必须先于 swap 文件排除在 rootfs 快照之外）；
+② 在我们自己的 BLS 条目 cmdline 上加 `resume=UUID=<swap>`（仍然只改我们的条目）；
+③ 设 `HibernateDelaySec`（对应原厂的 180 分钟）并 A/B 实测。
+这与 §1.4 原厂策略完全吻合（**s2idle + 180 min 转 S4**），也是解决"整夜掉电"最短的一条路：
+**秒醒不再致命**——每次被 PDC 拉醒只是回到 s2idle，计时到点仍会转 S4。
+
 ## 2. 各工作包可行性读数（随调研更新）
 
 | 工作包 | 当前读数 | 依据 |
