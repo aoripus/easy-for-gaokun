@@ -143,7 +143,7 @@
 
 原厂不是"装完镜像就完事"，而是一套**可编程的定制框架**。链条如下：
 
-```
+```text
 WinRE / 恢复环境
   └─ Recovery\OEM\ResetConfig.xml        ← 工厂重置的入口声明
        ├─ Phase=BasicReset_AfterImageApply / FactoryReset_AfterImageApply → 运行 setup.cmd（超时 5）
@@ -171,29 +171,42 @@ WinRE / 恢复环境
 
 **已被解析出的关键事实**
 
-- **SKU 映射**（`InstallCustomization.cmd`）：`C128/C129/C138`=运营商、`C233/C243/C235/C245`=中国、
++ **SKU 映射**（`InstallCustomization.cmd`）：`C128/C129/C138`=运营商、`C233/C243/C235/C245`=中国、
+
   `C228/C229/C239/C189`=日本、`C001/C010/C170/C171/C331/C188`=美国、`C300`=零售。本机 **C233**。
-- **原厂参数表**（`RecoveryTool\product.ini`）：`product_name=Gaokun`、`product_model=MateBook E Go`、
+
++ **原厂参数表**（`RecoveryTool\product.ini`）：`product_name=Gaokun`、`product_model=MateBook E Go`、
+
   `product=GK-W7X`、`critical_power_percentage=2`、`disconnect_standby=001`、`adaptive=1`、`brightness=50`。
-- **OEM 系统版本串**：`Gaokun-W7821T 3.212.0.23(C233)`；构建配置 `preload_final_config.ini`：
+
++ **OEM 系统版本串**：`Gaokun-W7821T 3.212.0.23(C233)`；构建配置 `preload_final_config.ini`：
+
   `final_install_way=MasterInstall`、`install_type=PXE`、`csup_time=09-21-2022`。
-- **原厂 OS 镜像是 3 段拆分 WIM**（`clear_items_file.txt`）：
+
++ **原厂 OS 镜像是 3 段拆分 WIM**（`clear_items_file.txt`）：
+
   `05018SSN_Gaokun-W7821T_3.212.0.23-C233_T0-part.swm` + `part2` + `part3`，
   装完即删除；`InstallOrder.ini` 里唯一的安装项是 `%SystemDrive%\Recovery\Customizations\USMT.ppkg`。
-- **`Product\` 定制（与省电/可用度直接相关）**：
-  | 脚本 | 动作 |
-  |---|---|
-  | `close_allow_wake_timers` | SUB_SLEEP 的 `BD3B718A-0680-4D9D-8AB2-E1D2B4AC806D`（允许唤醒定时器）在 Balanced 计划 DC 置 **0** |
-  | `ssd_power_reduce` | SUB_DISK 的 `d639518a-e56d-4345-8af2-b9f32fb26109` DC 置 **20**（SSD 空闲相关） |
-  | `critical_battery_percentage` | 用 `product.ini` 的 `critical_power_percentage=2` 写 SUB_BATTERY 的 `9a66d8d7-…` 到三个计划 ⇒ **关键电量 2%** |
-  | `backlight_optimization` | 导入 `source\Brightness3.reg` |
-  | `HVCI_VBS` | `DeviceGuard\EnableVirtualizationBasedSecurity=1` 且 `HypervisorEnforcedCodeIntegrity\Enabled=0` ⇒ **VBS 开、HVCI 关** |
-  | `uninstall_graphics` | recovery 分支用 `dism /get-drivers` + `DISM /Remove-Driver` 把 **`qcdx8280`（Adreno 显示驱动）从镜像里移除** |
-  | `Dirvers2PE\PAR_install.cmd` | `DISM /image:w:\ /add-driver /driver:<PlatformDriver> /recurse` 注入 **WinPE**（PE 盘符 = `W:`），并复制 `qdcmlib\*` 到 `W:\Windows\System32` |
-- ⇒ **原厂"先卸后装"显示驱动的用意**：镜像里不带 Adreno 驱动，等进了系统再用 `pnputil` 装 —— 这是我们
+
++ **`Product\` 定制（与省电/可用度直接相关）**：
+
+| 脚本 | 动作 |
+|---|---|
+| `close_allow_wake_timers` | SUB_SLEEP 的 `BD3B718A-0680-4D9D-8AB2-E1D2B4AC806D`（允许唤醒定时器）在 Balanced 计划 DC 置 **0** |
+| `ssd_power_reduce` | SUB_DISK 的 `d639518a-e56d-4345-8af2-b9f32fb26109` DC 置 **20**（SSD 空闲相关） |
+| `critical_battery_percentage` | 用 `product.ini` 的 `critical_power_percentage=2` 写 SUB_BATTERY 的 `9a66d8d7-…` 到三个计划 ⇒ **关键电量 2%** |
+| `backlight_optimization` | 导入 `source\Brightness3.reg` |
+| `HVCI_VBS` | `DeviceGuard\EnableVirtualizationBasedSecurity=1` 且 `HypervisorEnforcedCodeIntegrity\Enabled=0` ⇒ **VBS 开、HVCI 关** |
+| `uninstall_graphics` | recovery 分支用 `dism /get-drivers` + `DISM /Remove-Driver` 把 **`qcdx8280`（Adreno 显示驱动）从镜像里移除** |
+| `Dirvers2PE\PAR_install.cmd` | `DISM /image:w:\ /add-driver /driver:<PlatformDriver> /recurse` 注入 **WinPE**（PE 盘符 = `W:`），并复制 `qdcmlib\*` 到 `W:\Windows\System32` |
+
++ ⇒ **原厂"先卸后装"显示驱动的用意**：镜像里不带 Adreno 驱动，等进了系统再用 `pnputil` 装 —— 这是我们
+
   做"干净镜像 + 驱动后注入"路线可以直接照抄的手法（`OOBEExtraSource\singleDriverInstall.cmd` 只有一行
   `pnputil -i -a C:\Recovery\OEM\OOBEExtraSource\qcdx8280\*.inf`）。
-- `Dirvers2PE\PAR_install.cmd` 里有大段**被注释掉的实验代码**（导入 `EnableHyperV.reg`、导入
+
++ `Dirvers2PE\PAR_install.cmd` 里有大段**被注释掉的实验代码**（导入 `EnableHyperV.reg`、导入
+
   `oem_test_cert.reg`、把 `qdcmlib\x64\qdcmlib.dll` 复制成 `qdcmlib_x64.dll`）—— 说明原厂曾尝试在 PE 里
   打开 Hyper-V/HVCI 并携带 x64 助手，最终**没有启用**。这与 (d) 工作包的 WSL2/Hyper-V 议题直接相关。
 
