@@ -33,8 +33,10 @@ MonospaceFont=Ubuntu Mono 11
 ConsoleLogTextColor=0xffffffff
 
 # Backing colour painted behind the log viewport (0xRRGGBBAA).
-# 0x00000080 = translucent black.  Set 0x00000000 for fully transparent.
-ConsoleLogBackgroundColor=0x00000080
+# 0x00000000 = fully transparent (this is also the plugin default).
+# Stay transparent: without the viewport patch the viewer spans the whole
+# screen, so an opaque backing would dim or hide the centred logo.
+ConsoleLogBackgroundColor=0x00000000
 
 # --- Values consumed by gaokun3-splash.script (script-env-vars group) ---
 # See gaokun3-splash.script for how these are used.
