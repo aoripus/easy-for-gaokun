@@ -158,7 +158,7 @@ WDT_Device_Driver、**Microsoft Visual C++ 2019 Redistributable (Arm64)**。
 
 | 工作包 | 读数 | 一句话依据 | 章节 |
 |---|---|---|---|
-| (a) x64 → ARM64 | **前提部分成立，目标需重新定义** | 驱动已全 ARM64；但**应用层 91.3% 的预装二进制是 x86/x64**（华为全家桶 + x64 版 Office）。可行手段只有"换官方 ARM64 版 / 换开源等价物 / 自研 / 保留模拟"，**不能反编译重写** | [§1.1](#11-原厂驱动转储是-arm64-原生的a在驱动层面不成立已核实) · [§1.6](#16--原厂预装软件与架构量化应用层确实以-x64-为主已核实) · [章节](win11-oem-customization.md) |
+| (a) x64 → ARM64 | **前提部分成立，目标需重新定义** | 驱动已全 ARM64；但**应用层 91.3% 的预装二进制是 x86/x64**（华为全家桶 + x64 版 Office）。可行手段只有"换官方 ARM64 版 / 换开源等价物 / 自研 / 保留模拟"，**不能反编译重写** | 本文 §1.1 · §1.6 · [章节](win11-oem-customization.md) |
 | (b) 自研管家 APP | **可行，且唯一能做满功能的路线是标准 WMI** | 标准 API 覆盖约 80%（电池健康/循环/功率、PDH 降频归因、GPU 利用率+显存、EcoQoS、SMBIOS）；**充电阈值只能走 `ROOT\WMI → OemWMIMethod::OemWMIfun`，且必须用 C++/COM**（PowerShell/C# 调用会报"无效参数"）；**一期不要写驱动** | [章节](win11-manager-app.md) |
 | (c) 调度/省电 | **有真实杠杆，但上限受固件限制** | 第一步必须是 `powercfg /sleepstudy` 量化（DRIPS%、掉电 mW、exit reasons）；最对症的是**自适应休眠**（`standbybudgetpercent`）与**电源模式滑块别选"最佳性能"**；DRIPS 质量取决于高通固件，脚本改不到那一层 | [章节](win11-power-tuning.md) |
 | (d) WSL2 + Android | **WSL2 本体可用；Android 没有好路径** | WSL2 ARM64 可安装可自动化（一次 UAC + 一次重启）；**但 GPU 加速当前不可用**（`dxgkrnl` 不给 `/dev/dri/renderD128`，Mesa 回落 llvmpipe，上游 issue 仍 open，而同 SoC 在 2023 年曾成功）；**ARM64 无嵌套虚拟化** ⇒ AVD/redroid/crosvm 全出局；**WSA 已 EOL**（2025-03-05） | [章节](win11-wsl-android.md) |
