@@ -22,6 +22,7 @@
 | 6 | 失败回退 | 四级回退链，**最终一定落到 `text` 主题，不会黑屏**。实测方法见 §6.3 |
 
 **交付物**：`theme/gaokun3-splash.plymouth` + `theme/gaokun3-splash.script` + `theme/logo.png`（+`logo.svg`/`make-logo.ps1`）
+
 + `theme/viewport-patch-spec.md`（三行视口的 C 改动规格）。
 
 ---
@@ -30,14 +31,15 @@
 
 ### 1.1 命令与原始输出
 
-```
+```text
 $ dpkg -l | grep -i plymouth
 ii  libplymouth5:arm64     24.004.60+git20250831.4a3c171d-0ubuntu8  arm64  ...
 ii  plymouth               24.004.60+git20250831.4a3c171d-0ubuntu8  arm64  boot animation, logger and I/O multiplexer
 ii  plymouth-label         24.004.60+git20250831.4a3c171d-0ubuntu8  arm64  ... label control
 ii  plymouth-theme-spinner 24.004.60+git20250831.4a3c171d-0ubuntu8  arm64  ... spinner theme
 ```
-```
+
+```text
 $ ls -la /usr/lib/aarch64-linux-gnu/plymouth/
 -rw-r--r-- details.so        (68344)
 drwxr-xr-x renderers
@@ -50,7 +52,8 @@ drwxr-xr-x renderers
 $ ls /usr/lib/aarch64-linux-gnu/plymouth/renderers/
 drm.so  frame-buffer.so
 ```
-```
+
+```text
 $ ls /usr/share/plymouth/themes/
 bgrt  default.plymouth -> /etc/alternatives/default.plymouth  details  spinner  text  tribar
 $ readlink -f /etc/alternatives/default.plymouth
@@ -64,7 +67,8 @@ ShowDelay=0
 DeviceTimeout=8
 UseSimpledrm=1
 ```
-```
+
+```text
 $ dpkg -l plymouth-themes
 un  plymouth-themes  <无>  <无>  (无描述)          # 已卸载/从未安装
 $ plymouth-set-default-theme
@@ -73,20 +77,27 @@ bash: plymouth-set-default-theme: 未找到命令        # 该命令属于 plymo
 
 ### 1.2 结论【已核实】
 
-* **版本**：`24.004.60+git20250831.4a3c171d-0ubuntu8`（很新，含上游新架构：`src/daemon/plymouthd-*.c` 模块化拆分、
++ **版本**：`24.004.60+git20250831.4a3c171d-0ubuntu8`（很新，含上游新架构：`src/daemon/plymouthd-*.c` 模块化拆分、
+
   console viewer、`panel orientation` 支持）。
-* **可用 splash 插件**：`details` / `label-pango` / **`script`** / `text` / `tribar` / `two-step`。
+
++ **可用 splash 插件**：`details` / `label-pango` / **`script`** / `text` / `tribar` / `two-step`。
+
   **没有** `console-viewer.so`（上游有 `src/plugins/splash/console-viewer/`，但 Ubuntu 未打包）。
-* **渲染器**：`drm.so` 与 `frame-buffer.so`，两者都在 initramfs 里也有。
-* **已安装主题**：`bgrt`（默认，走 `two-step`）、`details`、`spinner`、`text`、`tribar`。
-* **当前默认主题 = `bgrt`**（ACPI BGRT 背景图 + spinner）。`/etc/plymouth/plymouthd.conf` 只有注释、无 `Theme=`，
+
++ **渲染器**：`drm.so` 与 `frame-buffer.so`，两者都在 initramfs 里也有。
++ **已安装主题**：`bgrt`（默认，走 `two-step`）、`details`、`spinner`、`text`、`tribar`。
++ **当前默认主题 = `bgrt`**（ACPI BGRT 背景图 + spinner）。`/etc/plymouth/plymouthd.conf` 只有注释、无 `Theme=`，
+
   所以走 `default.plymouth` 符号链接。
-* `plymouth-set-default-theme` **不存在**（属于未安装的 `plymouth-themes`）⇒ 安装脚本
+
++ `plymouth-set-default-theme` **不存在**（属于未安装的 `plymouth-themes`）⇒ 安装脚本
+
   **不能依赖它**，必须直接写 `/etc/plymouth/plymouthd.conf` 的 `Theme=` 或替换 alternative。
 
 ### 1.3 ★ 附带发现：initramfs 里**没有** `script.so`【已核实】
 
-```
+```text
 $ lsinitramfs /boot/initrd.img-$(uname -r) | grep plymouth
 etc/plymouth/plymouthd.conf
 scripts/init-bottom/plymouth
@@ -120,7 +131,7 @@ usr/share/plymouth/themes/spinner/  (animation-000x.png ...)
 
 在平板二进制上直接取证：
 
-```
+```text
 $ nm -D --undefined-only /usr/lib/aarch64-linux-gnu/plymouth/script.so | grep -i console
                  U ply_console_viewer_clear_line
                  U ply_console_viewer_convert_boot_buffer
@@ -155,20 +166,26 @@ Using console viewer instead of kernel framebuffer console
 上游 `main` 分支：
 
 1. **plymouthd 读 `/dev/kmsg`**
-   - `strings /usr/sbin/plymouthd` 含：`ply_kmsg_reader_start` / `ply_kmsg_reader_new` /
+
+   + `strings /usr/sbin/plymouthd` 含：`ply_kmsg_reader_start` / `ply_kmsg_reader_new` /
+
      `ply_kmsg_reader_watch_for_messages` / `%-75.75s: Creating new kmsg reader`。
-   - 实现：`src/libply-splash-core/ply-kmsg-reader.c`。
-   - 打开条件由 `ply_show_new_kernel_messages()` 控制；`quiet`/`loglevel` 决定 `/dev/kmsg` 里有多少内容。
+
+   + 实现：`src/libply-splash-core/ply-kmsg-reader.c`。
+   + 打开条件由 `ply_show_new_kernel_messages()` 控制；`quiet`/`loglevel` 决定 `/dev/kmsg` 里有多少内容。
 
 2. **daemon 把日志喂给插件**（`src/libply-splash-core/ply-boot-splash.c:625-626`）
+
    ```c
    if (splash->plugin_interface->on_boot_output != NULL)
            splash->plugin_interface->on_boot_output (splash->plugin, output, size);
    ```
+
    另外 `ply_boot_splash_show()` 会把**已累积的 boot buffer** 一起交给插件
    （`ply-boot-splash.c:550` 附近，`splash->boot_buffer`）。
 
 3. **`script` 插件把它塞进 console viewer**（`src/plugins/splash/script/plugin.c`）
+
    ```c
    /* add_display(), 行 555-563 */
    if (ply_console_viewer_preferred ()) {
@@ -181,6 +198,7 @@ Using console viewer instead of kernel framebuffer console
            script_display->console_viewer = NULL;
    }
    ```
+
    ```c
    /* on_boot_output(), 行 723-748 */
    static void
@@ -195,50 +213,65 @@ Using console viewer instead of kernel framebuffer console
                    ply_console_viewer_write (display->console_viewer, output, size);
    }
    ```
+
    接口结构体（行 750-779）里 **`.on_boot_output = on_boot_output`** 已接好。
 
 4. **console viewer 自己维护"只显示最新 N 行"**（`src/libply-splash-graphics/ply-console-viewer.c`）
-   - 构造：行 96、标签数 = 行 119-124
+
+   + 构造：行 96、标签数 = 行 119-124
+
      ```c
      console_viewer->line_max_chars = ply_pixel_display_get_width (display)
                                       / console_viewer->font_width - 1;
      line_count = ply_pixel_display_get_height (display) / console_viewer->font_height;
      ```
-   - 写入：`ply_console_viewer_write()` 行 366-371 → `ply_terminal_emulator_parse_lines()`
-   - **滚动**：`update_console_messages()` 行 168-253，行 185-194 取出最后 `visible_line_count` 行：
+
+   + 写入：`ply_console_viewer_write()` 行 366-371 → `ply_terminal_emulator_parse_lines()`
+   + **滚动**：`update_console_messages()` 行 168-253，行 185-194 取出最后 `visible_line_count` 行：
+
      ```c
      message_number = ply_terminal_emulator_get_line_count (...);
      if (message_number < visible_line_count) message_number = 0;
      else message_number = number_of_messages - visible_line_count;
      ```
+
      ⇒ **"新行从下往上顶、旧行滚出"这个行为已经原生具备**。
-   - **定位**：`ply_console_viewer_show()` 行 255-282，行 274-276
+
+   + **定位**：`ply_console_viewer_show()` 行 255-282，行 274-276
+
      ```c
      ply_label_show (console_message_label, console_viewer->display,
                      console_viewer->font_width / 2,
                      console_viewer->font_height * label_index);
      ```
+
      ⇒ **硬编码左上角**，且行数由屏幕高度决定（1600×2560 + Ubuntu Mono 11 ≈ 105 行）。
-   - 绘制：`ply_console_viewer_draw_area()` 行 284-314。
+
+   + 绘制：`ply_console_viewer_draw_area()` 行 284-314。
 
 5. **开关**：`ply_console_viewer_preferred()`（行 60-93）
+
    ```c
    if (ply_kernel_command_line_has_argument ("plymouth.prefer-fbcon")) -> 不用 viewer
    label = ply_label_new (); ply_label_set_text (label, " ");
    if (ply_label_get_width (label) <= 1 || ply_label_get_height (label) <= 1) -> 不用 viewer
    else -> "Using console viewer instead of kernel framebuffer console"
    ```
+
    ⇒ **默认启用**（除非显式加 `plymouth.prefer-fbcon`，或字体渲染坏了）。
 
 ### 2.3 ★ 直接回答"自定义 script 主题能不能拿到内核消息"
 
 **不能通过脚本语言拿到。但脚本主题的屏幕上确实会显示内核消息——由插件内部的 console viewer 完成。**
 
-* 脚本语言**没有** `SetBootOutputFunction`、没有 `Plymouth.SetMessageFunction` 取内核消息这回事：
++ 脚本语言**没有** `SetBootOutputFunction`、没有 `Plymouth.SetMessageFunction` 取内核消息这回事：
+
   `Plymouth.SetMessageFunction` 是 `Plymouth.SetDisplayMessageFunction` 的**别名**
   （`src/plugins/splash/script/script-lib-plymouth.script` 第 2 行），只收
   `plymouth display-message --text=...` 或 `plymouth message` 送来的字符串，**不是内核日志**。
-* 脚本能拿到的全部 Plymouth 回调（`script-lib-plymouth.c` 注册，共 18 个）：
+
++ 脚本能拿到的全部 Plymouth 回调（`script-lib-plymouth.c` 注册，共 18 个）：
+
   `SetRefreshFunction` / `SetRefreshRate` / `SetBootProgressFunction` / `SetRootMountedFunction` /
   `SetKeyboardInputFunction` / `SetUpdateStatusFunction` / `SetDisplayNormalFunction` /
   `SetDisplayPasswordFunction` / `SetDisplayQuestionFunction` / `SetDisplayPromptFunction` /
@@ -267,7 +300,7 @@ Using console viewer instead of kernel framebuffer console
 
 ### 2.5 字体必须存在于 initramfs【已核实】
 
-```
+```text
 $ lsinitramfs /boot/initrd.img-$(uname -r) | grep -iE 'fonts|pango'
 etc/fonts/conf.d/60-latin.conf
 etc/fonts/fonts.conf
@@ -275,6 +308,7 @@ usr/share/fonts/truetype/ubuntu/UbuntuMono-Italic[wght].ttf
 usr/share/fonts/truetype/ubuntu/UbuntuMono[wght].ttf
 usr/share/fonts/truetype/ubuntu/Ubuntu[wdth,wght].ttf
 ```
+
 ⇒ **只能写 `Ubuntu Mono` / `Ubuntu`**（`Cantarell` 是 PyPI 之外的东西，**不在 initramfs 里**，
 stock `spinner.plymouth` 写 `Cantarell 12` 在 initramfs 阶段是会静默回退的）。
 `label-pango.so`（pango+cairo+fontconfig 实现）已在 initramfs 中，所以文字渲染可用。
@@ -299,15 +333,17 @@ stock `spinner.plymouth` 写 `Cantarell 12` 在 initramfs 阶段是会静默回�
 
 ### 3.2 语言能力【已核实】
 
-* 变量、`fun name(a,b){...}`、`if/else`、`while`、`do-while`、`for`、`break`、`continue`。
-* 运算符：`+ - * / %`、`+= -= *= /= %=`、`== != < > <= >=`、`&& || !`、`++ --`、
++ 变量、`fun name(a,b){...}`、`if/else`、`while`、`do-while`、`for`、`break`、`continue`。
++ 运算符：`+ - * / %`、`+= -= *= /= %=`、`== != < > <= >=`、`&& || !`、`++ --`、
+
   `|`（`SCRIPT_EXP_TYPE_EXTEND`）、`|=`（`SCRIPT_EXP_TYPE_ASSIGN_EXTEND`）。
   **`/`（除法）存在**：`script-parse.c` 的 `operator_table` 里 `{ "/", SCRIPT_EXP_TYPE_DIV, 6 }`【已核实】。
-* **数组字面量** `[ a, b, c ]` 与下标 `arr[i]`：上游 `themes/script/script.script` 用 `dialog.bullet[index]` 作证。
-* **点号对象**：`a.b = v` 给 hash 加键，`a.b` 读。可用来做命名空间（上游参考主题大量使用）。
-* **全局/局部**：`global.x`、`local.x`。
-* **`Plymouth.SetUpdateStatusFunction` 的回调会收到 `status`/`mode` 字符串**。
-* 主题脚本主流程执行**早于**第一帧绘制，因此 sprite 在脚本顶层创建即可。
+
++ **数组字面量** `[ a, b, c ]` 与下标 `arr[i]`：上游 `themes/script/script.script` 用 `dialog.bullet[index]` 作证。
++ **点号对象**：`a.b = v` 给 hash 加键，`a.b` 读。可用来做命名空间（上游参考主题大量使用）。
++ **全局/局部**：`global.x`、`local.x`。
++ **`Plymouth.SetUpdateStatusFunction` 的回调会收到 `status`/`mode` 字符串**。
++ 主题脚本主流程执行**早于**第一帧绘制，因此 sprite 在脚本顶层创建即可。
 
 ### 3.3 字号 / 颜色 / 多行队列
 
@@ -335,6 +371,7 @@ fbcon=rotate:1
 consoleblank=0
 loglevel=4
 ```
+
 ```bash
 $ cat /sys/class/drm/card1-DSI-1/status ; cat /sys/class/drm/card1-DSI-1/modes
 connected
@@ -364,7 +401,7 @@ bash: modetest: 未找到命令
 在平板上用一个**独立的 `plymouthd` 实例**（`--no-daemon --debug --tty=/dev/tty63`，
 私有 socket，不干扰正在运行的 plymouthd）跑出来的日志：
 
-```
+```text
 ../src/libply-splash-core/ply-renderer.c:247:ply_renderer_open : trying to open renderer plugin .../renderers/drm.so
 ../src/plugins/renderers/drm/plugin.c:990:load_driver  : drm driver: msm
 ../src/plugins/renderers/drm/plugin.c:1160:get_preferred_mode : Found preferred mode 1600x2560 at index 0
@@ -378,23 +415,31 @@ bash: modetest: 未找到命令
 ```
 
 **逐条结论**：
+
 1. 打开的是 `drm.so`，驱动 `msm`，head = **1600×2560（竖屏原生）**。
 2. `/dev/fb0` 被显式 **`ignoring, since there's a DRM device associated with it`** ⇒
    **Framebuffer 渲染器根本没被使用**。
+
 3. **没有任何旋转日志**（没有 `Keeping hw 180° rotation`，也没有 `panel orientation` 分支）。
 4. 源码交叉验证：`src/plugins/renderers/frame-buffer/plugin.c` 里
    **`grep -i rotat` 零命中** ⇒ 即使强制 framebuffer 渲染器，它**也不支持旋转**。
+
 5. `src/plugins/renderers/drm/plugin.c:497-538`：DRM 渲染器唯一的旋转来源是 connector 的
    **`panel orientation`** 属性；本机 connector **没有该属性**（面板驱动没调 `drm_connector_set_panel_orientation`，
    也没有 DMI quirk）⇒ `output->rotation = PLY_PIXEL_BUFFER_ROTATE_UPRIGHT`。
 
 ### 4.3 ★ 会不会侧躺？**会。**【已核实（机制）+ 推测（方向）】
 
-* `fbcon=rotate:1` 只影响 **VT 控制台（fbcon）**把字符画进 framebuffer 的方式，
++ `fbcon=rotate:1` 只影响 **VT 控制台（fbcon）**把字符画进 framebuffer 的方式，
+
   与 DRM plane 无关。plymouth 直接画 DRM plane ⇒ **完全绕开它**。
-* 因此 plymouth 渲染的 "上" 是 **scanout 的 +Y 方向**，而这在物理玻璃上**不是真正的上**
+
++ 因此 plymouth 渲染的 "上" 是 **scanout 的 +Y 方向**，而这在物理玻璃上**不是真正的上**
+
   ⇒ **LOGO 会侧躺 90°**。
-* **方向**：`fbcon=rotate:1` = `FB_ROTATE_CW`（`include/uapi/linux/fb.h:236`），
+
++ **方向**：`fbcon=rotate:1` = `FB_ROTATE_CW`（`include/uapi/linux/fb.h:236`），
+
   即"把控制台内容顺时针转 90° 后放进 framebuffer"。
   ⇒ 要得到同样（当前可读的）效果，plymouth 必须**顺时针转 90°**。
   这是**推测**（未做视觉确认），所以主题把角度做成**一个可切换常量**：`RotateQuadrant=1`
@@ -413,7 +458,7 @@ bash: modetest: 未找到命令
 
 ### 4.5 ★ 上机 A/B 判定流程（不靠猜）
 
-```
+```text
 # 1. 装上主题，重启。
 # 2. 看 LOGO：如果"开口朝上"正常 -> RotateQuadrant 正确；
 #    如果歪 90° -> 把 gaokun3-splash.plymouth 里的 RotateQuadrant 1 <-> 3 互换，重跑 update-initramfs + 重启。
@@ -433,6 +478,7 @@ bash: modetest: 未找到命令
 ### 5.1 ★ plymouthd 起不来的硬门槛：`splash`【已核实】
 
 `/usr/lib/systemd/system/plymouth-start.service`：
+
 ```ini
 [Unit]
 ConditionKernelCommandLine=!plymouth.enable=0
@@ -445,6 +491,7 @@ ExecStartPost=-/usr/bin/plymouth show-splash
 ```
 
 `src/daemon/plymouthd-policy.c::plymouthd_should_show_default_splash()`：
+
 ```c
 if (ply_kernel_command_line_has_argument ("splash")) {
         ply_trace ("using default splash because kernel command line has option \"splash\"");
@@ -459,11 +506,14 @@ return false;
 
 ### 5.2 ★ `quiet` 要不要加？**不要**【已核实 + 推理】
 
-* 不需要：`should_show_default_splash()` 只看 `splash` / `rhgb` / `splash=silent`，**不看 `quiet`**。
-* 不应该加：内核 printf 的级别由 `loglevel=` 控制；`quiet` 只是把 **console_loglevel 设为 4**
++ 不需要：`should_show_default_splash()` 只看 `splash` / `rhgb` / `splash=silent`，**不看 `quiet`**。
++ 不应该加：内核 printf 的级别由 `loglevel=` 控制；`quiet` 只是把 **console_loglevel 设为 4**
+
   （等价于 `loglevel=4`，本机**已经有了**）。去掉 `quiet` 不会让屏幕更吵 —— 当前 `loglevel=4`
   已经过滤掉 `<4` 的消息（注意"4"就是 KERN_WARNING 本身，会打印）。
-* **反过来**：一旦 `splash` + `--attach-to-session` 生效，plymouthd 会把控制台输出重定向进自己的日志
+
++ **反过来**：一旦 `splash` + `--attach-to-session` 生效，plymouthd 会把控制台输出重定向进自己的日志
+
   （`--attach-to-session  Redirect console messages from screen to log`），
   屏幕上看到的就是 **plymouth 的 console viewer（我们的三行区）**，而不是裸 tty0 滚动。
 
@@ -502,7 +552,8 @@ return false;
 
 `src/daemon/plymouthd-display.c:200-260`（`plymouthd_show_default_splash()`）：
 
-```
+```text
+
 1. override_splash_path            （plymouthd.conf [Daemon] Theme= 或 cmdline）
 2. system_default_splash_path      （/etc/alternatives/default.plymouth 解析结果）
 3. distribution_default_splash_path
@@ -520,18 +571,22 @@ return false;
 
 ### 6.2 `details` 与 `text` 的区别（容易搞混）
 
-* `details` = **文本插件**，把 boot buffer 直接 `ply_terminal_write()` 到 **VT 终端**
++ `details` = **文本插件**，把 boot buffer 直接 `ply_terminal_write()` 到 **VT 终端**
+
   （`src/plugins/splash/details/plugin.c:193-225, 271-321`），**不是图形渲染**。
   它没有旋转、没有 sprite，内容就是满屏原始日志 —— 也就是"现在看到的样子"。
-* `text` = 文字主题 + 3 格倒计时，用于密码/问题等场景。
+
++ `text` = 文字主题 + 3 格倒计时，用于密码/问题等场景。
 
 ### 6.3 ★ 如何安全实测"主题写坏"而不变砖
 
 **先讲为什么安全**【已核实】：
-* plymouthd 不接管显示所有权（DRM master 会在退出时释放），
-* `plymouth-quit.service` 在 GNOME 起来之前 `plymouth quit`，
-* ssh 已 enabled（`systemctl is-enabled ssh` → `enabled`），
-* **只有加了 `splash` 的那一条 BLS 条目**受影响，默认条目与其它内核条目不带 `splash` ⇒
+
++ plymouthd 不接管显示所有权（DRM master 会在退出时释放），
++ `plymouth-quit.service` 在 GNOME 起来之前 `plymouth quit`，
++ ssh 已 enabled（`systemctl is-enabled ssh` → `enabled`），
++ **只有加了 `splash` 的那一条 BLS 条目**受影响，默认条目与其它内核条目不带 `splash` ⇒
+
   在 systemd-boot 菜单里选别的条目就能回到"满屏日志"的现状。
 
 **推荐实测顺序（从零风险到全风险）**：
@@ -569,6 +624,7 @@ sudo unshare -m --propagation private bash -c '
 ```
 
 **回滚**：
+
 ```bash
 # 1) 还原 /etc/plymouth/plymouthd.conf（安装时备份为 .gaokun3-splash.bak）
 sudo cp /etc/plymouth/plymouthd.conf.gaokun3-splash.bak /etc/plymouth/plymouthd.conf
@@ -597,6 +653,7 @@ sudo cp /etc/plymouth/plymouthd.conf.gaokun3-splash.bak /etc/plymouth/plymouthd.
 
 1. **先做 §6.3 步骤 0**：把主题装到平板、`update-initramfs`、用 `unshare -m` 的独立 plymouthd
    验证脚本能被解析执行（**此时 cmdline 还没有 `splash`，零风险**）。
+
 2. **确认方向**：给 BLS 条目加 `splash`，重启，按 §4.5 判定 `RotateQuadrant` 取 1 还是 3。
 3. **落脚本阶段目标达成**：此时屏幕上应有"居中 LOGO + 满屏日志"（因为 console viewer 默认全屏）。
 4. **要"三行左下角"就必须上 C 补丁**（`viewport-patch-spec.md`）：
@@ -608,11 +665,14 @@ sudo cp /etc/plymouth/plymouthd.conf.gaokun3-splash.bak /etc/plymouth/plymouthd.
 
 ### 尚缺 / 待验证（诚实标注）
 
-* 【推测】`RotateQuadrant` 的最终取值（顺/逆时针 90°）—— 需实机一眼确认（§4.5）。
-* 【未做】console viewer 的文字旋转 —— 若 §4.5 第 3 步发现文字也歪，补丁里要一并给
++ 【推测】`RotateQuadrant` 的最终取值（顺/逆时针 90°）—— 需实机一眼确认（§4.5）。
++ 【未做】console viewer 的文字旋转 —— 若 §4.5 第 3 步发现文字也歪，补丁里要一并给
+
   `ply_console_viewer_draw_area()` 加旋转（本次未展开到那个粒度）。
-* 【未做】`script.so` 的实际重编译与替换流程（本调研为只读，未在平板编译）。
-* 【未做】把 `logo.png` 塞进 initramfs 的钩子（`/usr/share/initramfs-tools/hooks/`）——
+
++ 【未做】`script.so` 的实际重编译与替换流程（本调研为只读，未在平板编译）。
++ 【未做】把 `logo.png` 塞进 initramfs 的钩子（`/usr/share/initramfs-tools/hooks/`）——
+
   Ubuntu 自带的 plymouth hook 只拷当前主题目录，如果我们的主题成为 `default.plymouth` 的目标就会自动带上；
   若走 `plymouthd.conf Theme=` 覆盖路径，**需要确认 hook 是否也会拷**（`update-alternatives default.plymouth` 才是
   hook 的取值来源，见 `/usr/share/initramfs-tools/hooks/plymouth` 第 15-17 行）⇒ **建议安装脚本顺带
