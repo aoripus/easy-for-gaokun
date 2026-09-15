@@ -89,6 +89,13 @@ if (RotateQuadrant == 1 || RotateQuadrant == 3) {
 # image's top-left corner lands at logical position (lx, ly) of the upright
 # canvas.  With RotateQuadrant == 1 the mapping is
 #     scan_x = SCREEN_W - ly - h      scan_y = lx
+#
+# !!! The caller MUST keep the returned object in a variable that outlives the
+# call.  Script objects are reference counted and releasing the only reference
+# destroys the sprite (which removes it from the display again), so a bare
+# `place_image (...);` paints nothing at all - silently, with no error in the
+# plymouth debug log.  That is exactly how the first version of this theme
+# failed on the device.  Assign it to a global, as done at the bottom.
 fun place_image (image, lx, ly)
 {
   rotated = image;
@@ -122,9 +129,10 @@ if (logo_image != NULL) {
   aspect = logo_image.GetHeight () / logo_image.GetWidth ();
   if (aspect > 0) { logo_h = logo_w * aspect; }
 
-  place_image (logo_image.Scale (logo_w, logo_h),
-               (LOGICAL_W - logo_w) / 2,
-               (LOGICAL_H - logo_h) / 2);
+  # Kept in a top-level global on purpose: see the note on place_image().
+  logo_sprite = place_image (logo_image.Scale (logo_w, logo_h),
+                             (LOGICAL_W - logo_w) / 2,
+                             (LOGICAL_H - logo_h) / 2);
 }
 
 # --------------------------------------------------------------------------
